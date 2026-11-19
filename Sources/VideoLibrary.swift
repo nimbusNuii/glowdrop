@@ -16,6 +16,7 @@ final class VideoLibrary: ObservableObject {
     @Published private(set) var scanNotice: [LocalizedMessage] = []
 
     let settings: AppSettings
+    let lockScreen = LockScreenSync()
     private let onApply: (URL) -> Void
     private let defaults = UserDefaults.standard
     private let videoPathKey = "videoPath"
@@ -32,6 +33,7 @@ final class VideoLibrary: ObservableObject {
     private var needsRescan = false
     private var scanCompletions: [@MainActor () -> Void] = []
     private var qualitySubscription: AnyCancellable?
+    private var lockScreenSubscription: AnyCancellable?
 
     static let bundledRoot = Bundle.main.resourceURL?.appendingPathComponent("Wallpapers", isDirectory: true)
 
@@ -44,6 +46,10 @@ final class VideoLibrary: ObservableObject {
         // @Published emits before storing, so use the value the sink receives.
         qualitySubscription = settings.$quality.dropFirst().sink { [weak self] quality in
             self?.reapplyCurrentVariant(quality, isAutomatic: false)
+        }
+        // Not dropFirst: launching with the setting off clears what an earlier run left in the folder.
+        lockScreenSubscription = settings.$lockScreenSync.sink { [weak self] enabled in
+            self?.updateLockScreen(enabled: enabled)
         }
         for name in [NSApplication.didChangeScreenParametersNotification, .powerSourceChanged] {
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -213,6 +219,19 @@ final class VideoLibrary: ObservableObject {
         }
         pendingUserFile = nil
         if missingUserFiles.contains(url) { missingUserFiles = missingUserFiles.subtracting([url]) }
+        updateLockScreen(enabled: settings.lockScreenSync)
+    }
+
+    /// Mirrors the file the player confirmed (the chosen variant) for the Lock Screen extension on macOS 26+,
+    /// or clears the folder when the setting is off.
+    private func updateLockScreen(enabled: Bool) {
+        guard #available(macOS 26, *) else { return }
+        guard enabled else {
+            lockScreen.clear()
+            return
+        }
+        guard let path = lastGoodPath else { return }
+        lockScreen.sync(source: URL(fileURLWithPath: path))
     }
 
     /// The player could not open `url` and kept showing the last good file: report it and point current (and

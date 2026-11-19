@@ -17,6 +17,7 @@ final class AppSettings: ObservableObject {
         static let language = "language", quality = "quality", libraryPath = "libraryPath"
         static let pauseWhenCovered = "pauseWhenCovered", pauseWhenLocked = "pauseWhenLocked"
         static let pauseInLowPowerMode = "pauseInLowPowerMode", pauseOnBattery = "pauseOnBattery"
+        static let lockScreenSync = "lockScreenSync"
     }
 
     @Published var language: AppLanguage {
@@ -39,6 +40,11 @@ final class AppSettings: ObservableObject {
     @Published var pauseOnBattery: Bool {
         didSet { defaults.set(pauseOnBattery, forKey: Key.pauseOnBattery) }
     }
+    /// Mirror the wallpaper to the Lock Screen extension (macOS 26+). `bool(forKey:)` also reads a
+    /// `-lockScreenSync YES` launch argument, which is not saved.
+    @Published var lockScreenSync: Bool {
+        didSet { defaults.set(lockScreenSync, forKey: Key.lockScreenSync) }
+    }
     /// Validated by `VideoLibrary.changeRoot(to:)` before it is set.
     @Published var libraryPath: String {
         didSet { defaults.set(libraryPath, forKey: Key.libraryPath) }
@@ -54,6 +60,7 @@ final class AppSettings: ObservableObject {
         pauseWhenLocked = defaults.object(forKey: Key.pauseWhenLocked) as? Bool ?? true
         pauseInLowPowerMode = defaults.object(forKey: Key.pauseInLowPowerMode) as? Bool ?? true
         pauseOnBattery = defaults.object(forKey: Key.pauseOnBattery) as? Bool ?? false
+        lockScreenSync = defaults.bool(forKey: Key.lockScreenSync)
         libraryPath = defaults.string(forKey: Key.libraryPath) ?? Self.defaultLibraryPath
         L10n.use(language)
     }

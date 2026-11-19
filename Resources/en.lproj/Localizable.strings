@@ -74,6 +74,12 @@
 "settings.pauseLowPower" = "Pause in Low Power Mode";
 "settings.pauseBattery" = "Pause on battery power";
 "settings.offline" = "This app works offline and never connects to the internet.";
+"settings.lockScreen" = "Lock Screen (experimental)";
+"settings.lockScreen.show" = "Show on Lock Screen";
+"settings.lockScreen.footnote" = "After turning this on, choose Glowdrop once in System Settings > Wallpaper. It may stop working after a macOS update.";
+"settings.lockScreen.open" = "Open Wallpaper Settings…";
+"settings.lockScreen.error" = "Couldn’t update the Lock Screen video: %@";
+"settings.lockScreen.noSpace" = "Not enough disk space to show this video on the Lock Screen: it needs %@ free.";
 "settings.library" = "Library";
 "settings.libraryFolder" = "Folder";
 "settings.change" = "Change…";

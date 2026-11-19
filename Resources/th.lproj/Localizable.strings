@@ -74,6 +74,12 @@
 "settings.pauseLowPower" = "หยุดในโหมดประหยัดพลังงาน";
 "settings.pauseBattery" = "หยุดเมื่อใช้แบตเตอรี่";
 "settings.offline" = "แอปนี้ทำงานออฟไลน์ ไม่เชื่อมต่ออินเทอร์เน็ต";
+"settings.lockScreen" = "หน้าล็อก (ทดลอง)";
+"settings.lockScreen.show" = "แสดงบนหน้าล็อก";
+"settings.lockScreen.footnote" = "หลังเปิดแล้ว ให้เลือก Glowdrop หนึ่งครั้งใน System Settings > Wallpaper ฟีเจอร์นี้อาจหยุดทำงานหลังอัปเดต macOS";
+"settings.lockScreen.open" = "เปิดการตั้งค่าวอลเปเปอร์…";
+"settings.lockScreen.error" = "อัปเดตวิดีโอหน้าล็อกไม่สำเร็จ: %@";
+"settings.lockScreen.noSpace" = "พื้นที่ดิสก์ไม่พอสำหรับแสดงวิดีโอนี้บนหน้าล็อก ต้องมีพื้นที่ว่าง %@";
 "settings.library" = "คลัง";
 "settings.libraryFolder" = "โฟลเดอร์";
 "settings.change" = "เปลี่ยน…";
