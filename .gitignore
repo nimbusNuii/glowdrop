@@ -1,0 +1,10 @@
+# Build output
+build/
+dist/
+tools/glitch-render/build/
+tools/app-icon/build/
+
+# Bundled wallpapers are rendered by tools/glitch-render/render-bundled.sh at release time
+Resources/Wallpapers/
+
+.DS_Store
