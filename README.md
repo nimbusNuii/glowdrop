@@ -33,16 +33,18 @@ It lives in the menu bar, pauses itself when nobody can see the wallpaper, and n
 
 ## Install
 
-1. Download `Glowdrop-<version>.zip` from the [Releases page](https://github.com/nimbusNuii/glowdrop/releases). Don't use a copy someone
-   re-sent you in a chat; the app is not signed by Apple, so a modified copy would look the same.
+1. Download `Glowdrop-<version>.dmg` from the [Releases page](https://github.com/nimbusNuii/glowdrop/releases)
+   (a `.zip` is there too). Don't use a copy someone re-sent you in a chat; the app is not signed by Apple, so a
+   modified copy would look the same.
 2. Check that the download is the original. In Terminal run
 
    ```sh
-   shasum -a 256 ~/Downloads/Glowdrop-<version>.zip
+   shasum -a 256 ~/Downloads/Glowdrop-<version>.dmg
    ```
 
    and compare the result with the SHA-256 on the Release page. If it differs, delete the file.
-3. Unzip it and move `Glowdrop.app` to your Applications folder.
+3. Open the `.dmg` and drag **Glowdrop** onto the **Applications** folder in the window, then eject the disk image.
+   (With the `.zip`: unzip it and move `Glowdrop.app` to Applications.)
 4. Open it. The first launch is blocked because the app is not notarized by Apple (it is a free project
    without a paid developer account):
    - **macOS 15 or later**: open System Settings → Privacy & Security, scroll down to the message about
@@ -97,7 +99,7 @@ Needs the Xcode Command Line Tools (`xcode-select --install`); no Xcode project.
 ```sh
 bash build.sh             # build/Glowdrop.app for this Mac, runs the self-tests
 bash build.sh --install   # also copies it to ~/Applications
-bash build.sh --release   # universal app + dist/Glowdrop-<version>.zip
+bash build.sh --release   # universal app + dist/Glowdrop-<version>.dmg and .zip
 ```
 
 `--release` renders the bundled wallpapers first (a few minutes) into `Resources/Wallpapers` with

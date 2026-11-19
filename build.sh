@@ -76,6 +76,17 @@ elif [[ $MODE == release ]]; then
     ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
     echo "Release: $PWD/$ZIP"
     shasum -a 256 "$ZIP"
+
+    DMG="dist/$APP_NAME-$VERSION.dmg"
+    rm -rf build/dmg
+    mkdir -p build/dmg
+    ditto "$APP" "build/dmg/$APP_NAME.app"
+    ln -s /Applications build/dmg/Applications
+    rm -f "$DMG"
+    hdiutil create -volname "$APP_NAME $VERSION" -srcfolder build/dmg -fs HFS+ -format UDZO -ov -quiet "$DMG" >/dev/null
+    hdiutil verify -quiet "$DMG"
+    echo "Release: $PWD/$DMG"
+    shasum -a 256 "$DMG"
 else
     echo "Built: $PWD/$APP"
 fi
