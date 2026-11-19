@@ -92,6 +92,31 @@ folder (Settings → Library, or the sidebar's "Open Library Folder"):
 WebM and MKV files are not supported; convert them to MP4 first.
 Only add videos you have the right to use.
 
+## Lock Screen (experimental, macOS 26+)
+
+Glowdrop can show the current wallpaper on the Lock Screen too. The video plays only while the screen is
+locked or the screen saver is on; the rest of the time it holds a still frame.
+
+1. Open Glowdrop at least once (after **Open Anyway**, see [Install](#install)) before you look for it in
+   System Settings → Wallpaper.
+2. In Settings (⌘,) → Lock Screen (experimental), turn on **Show on Lock Screen**.
+3. Once: click **Open Wallpaper Settings…** (or open System Settings → Wallpaper) and choose **Glowdrop**.
+
+If the Glowdrop tile does not appear in Wallpaper, you may run this command yourself; it tells macOS to trust
+the wallpaper extension inside this copy of Glowdrop:
+`/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f -trusted /Applications/Glowdrop.app`.
+To undo it, run the same command with `-u` in place of `-f -trusted`:
+`/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u /Applications/Glowdrop.app`.
+
+To turn it off, first choose another wallpaper in System Settings → Wallpaper, then turn off
+**Show on Lock Screen**.
+
+It uses undocumented macOS interfaces, so a macOS update may break it. Glowdrop copies the playing video
+(mp4, mov or m4v) to `~/Library/Application Support/Glowdrop/LockScreen/`, the only folder the lock-screen
+extension can read. The copy is an instant APFS clone only when the video is on the same drive; a video on
+another drive is copied in full and uses that much disk space. The copy can be read by other apps running as
+you, unlike files inside protected folders such as Desktop or Documents.
+
 ## Build from source
 
 Needs the Xcode Command Line Tools (`xcode-select --install`); no Xcode project.
@@ -112,6 +137,12 @@ options (palette, logo text, HUD text, size, frame rate).
 
 Glowdrop has no network code and collects no data. Settings are stored with macOS user defaults;
 videos are read from folders you choose.
+
+## Credits
+
+The lock-screen extension's plumbing (the wallpaper extension point, its XPC interface and the video pipeline)
+is derived from [Phosphene](https://github.com/kageroumado/phosphene), MIT License; see
+[THIRD_PARTY_LICENSES/phosphene-LICENSE](THIRD_PARTY_LICENSES/phosphene-LICENSE).
 
 ## License
 

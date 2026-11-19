@@ -27,7 +27,10 @@ final class SettingsState: ObservableObject {
 struct SettingsView: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var library: VideoLibrary
+    @ObservedObject var lockScreen: LockScreenSync
     @StateObject private var state = SettingsState()
+
+    private static let wallpaperSettingsURL = URL(string: "x-apple.systempreferences:com.apple.Wallpaper-Settings.extension")
 
     private var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
@@ -38,6 +41,7 @@ struct SettingsView: View {
             general
             playback
             energy
+            if #available(macOS 26, *) { lockScreenSection }
             librarySection
             about
         }
@@ -81,6 +85,22 @@ struct SettingsView: View {
             Text(verbatim: L10n.t("settings.energy"))
         } footer: {
             footnote(L10n.t("settings.offline"))
+        }
+    }
+
+    private var lockScreenSection: some View {
+        Section {
+            Toggle(L10n.t("settings.lockScreen.show"), isOn: $settings.lockScreenSync)
+            if let url = Self.wallpaperSettingsURL {
+                Button(L10n.t("settings.lockScreen.open")) { NSWorkspace.shared.open(url) }
+            }
+            if let error = lockScreen.lastError {
+                Text(verbatim: L10n.text(error)).font(.caption).foregroundColor(.red)
+            }
+        } header: {
+            Text(verbatim: L10n.t("settings.lockScreen"))
+        } footer: {
+            footnote(L10n.t("settings.lockScreen.footnote"))
         }
     }
 

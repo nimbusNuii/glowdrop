@@ -4,11 +4,24 @@ All notable changes to Glowdrop are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] - 2026-11-20
 
 ### Added
 
+- Lock Screen (experimental, macOS 26 or later): Settings → "Show on Lock Screen" puts the playing wallpaper on
+  the Lock Screen after you choose Glowdrop once in System Settings → Wallpaper. A bundled wallpaper extension plays
+  the video only while the screen is locked or the screen saver is on, and shows a still frame otherwise. It uses
+  undocumented system interfaces and may break after a macOS update. The extension plumbing is derived from
+  Phosphene (MIT).
 - `build.sh --release` also builds a drag-to-install `Glowdrop-<version>.dmg`.
+
+### Security
+
+- The wallpaper extension runs in the App Sandbox and can read only
+  `~/Library/Application Support/Glowdrop/LockScreen/`; it rejects callers that are verifiably not Apple-signed
+  and reads only a regular, non-symlink `state.json` of at most 4 KB that names an mp4, mov or m4v file the app wrote there.
+- Its writes into private system objects are made only after the expected memory layout is verified at startup;
+  on a mismatch it replies with an error instead. Errors and paths are logged as private.
 
 ## [0.1.0] - 2026-11-19
 

@@ -200,4 +200,169 @@ precondition(hostileScan.categories.first { $0.name == "Long" }?.items.map(\.tit
 
 try! fm.removeItem(at: tmp)
 
+// MARK: LockScreenFiles (names, state.json, cleanup)
+
+do {
+    guard let sunset = LockScreenFiles.videoName(forSourcePath: "/Users/a/Movies/Sunset-4K.MOV") else {
+        preconditionFailure("a .MOV source must get a name")
+    }
+    precondition(sunset == LockScreenFiles.videoName(forSourcePath: "/Users/a/Movies/Sunset-4K.MOV"))
+    precondition(sunset.hasPrefix("video-") && sunset.hasSuffix(".mov") && sunset.count == 26)
+    precondition(sunset != LockScreenFiles.videoName(forSourcePath: "/Users/a/Movies/Sunset-2K.MOV"))
+    // Pinned to SHA-256("abc.mp4"), so a name never changes between builds.
+    precondition(LockScreenFiles.videoName(forSourcePath: "abc.mp4") == "video-e7b7d9f2bb90dad0.mp4")
+    // Only mp4, mov and m4v get a name: a playlist, an odd extension or none at all is never mirrored.
+    for path in ["abc", "/x/clip.mp4%", "/x/live.m3u8", "/x/clip.webm"] {
+        precondition(LockScreenFiles.videoName(forSourcePath: path) == nil, path)
+    }
+    precondition(LockScreenFiles.isVideoName(sunset) && LockScreenFiles.isVideoName("video-e7b7d9f2bb90dad0.m4v"))
+    let notOurs = ["", "..", "../video-0123456789abcdef.mp4", "video-0123456789abcdef/../x", "/video-0123456789abcdef",
+                   "video-0123456789ABCDEF.mp4", "video-0123456789abcde.mp4", "video-0123456789abcdef.",
+                   "video-0123456789abcdef.mp4.mov", "video-０123456789abcdef", "current.mp4", "state.json",
+                   ".partial-video-0123456789abcdef.mp4", "video-0123456789abcdef", "video-0123456789abcdef.m3u8"]
+    for name in notOurs { precondition(!LockScreenFiles.isVideoName(name), name) }
+    let margin = LockScreenFiles.copyMarginBytes
+    precondition(LockScreenFiles.isEnoughSpace(sourceBytes: 100, availableBytes: 100 + margin))
+    precondition(!LockScreenFiles.isEnoughSpace(sourceBytes: 100, availableBytes: 99 + margin))
+
+    let folderNames = [sunset, "video-aaaaaaaaaaaaaaaa.mp4", ".partial-video-bbbbbbbbbbbbbbbb.mov", ".partial-notes.txt",
+                       "current.mp4", "state.json", "thumbnail.png", ".DS_Store", "video-notes.txt"]
+    precondition(LockScreenFiles.staleFiles(in: folderNames, keeping: sunset)
+        == ["video-aaaaaaaaaaaaaaaa.mp4", ".partial-video-bbbbbbbbbbbbbbbb.mov"])
+    precondition(LockScreenFiles.staleFiles(in: folderNames, keeping: nil)
+        == [sunset, "video-aaaaaaaaaaaaaaaa.mp4", ".partial-video-bbbbbbbbbbbbbbbb.mov"])
+
+    let state = LockScreenState(file: sunset, updated: 1_700_000_000)
+    precondition(LockScreenFiles.decode(try! LockScreenFiles.encode(state)) == state)
+    let hostileStates = [
+        #"{"file": "../../.ssh/id_rsa", "updated": 1}"#,
+        #"{"file": "current.mp4", "updated": 1}"#,
+        #"{"file": "video-0123456789abcdef.m3u8", "updated": 1}"#,
+        #"{"file": "\#(sunset)"}"#,
+        "not json",
+        #"{"file": "\#(sunset)", "updated": 1}"# + String(repeating: " ", count: 5_000),
+    ]
+    for json in hostileStates { precondition(LockScreenFiles.decode(Data(json.utf8)) == nil, json) }
+}
+
+// MARK: LockScreenFiles (mirror and clear on disk)
+
+do {
+    let root = fm.temporaryDirectory.appendingPathComponent("lw-lock-\(UUID().uuidString)", isDirectory: true)
+    let folder = root.appendingPathComponent("LockScreen", isDirectory: true)
+    let sourceA = root.appendingPathComponent("src/a.mp4"), sourceB = root.appendingPathComponent("src/B.MOV")
+    let userFiles = ["LockScreen/current.mp4": "spike", "LockScreen/notes.txt": "mine", "outside.mp4": "secret"]
+    for (path, contents) in userFiles.merging(["src/a.mp4": "one", "src/B.MOV": "two"], uniquingKeysWith: { $1 }) {
+        let url = root.appendingPathComponent(path)
+        try! fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        precondition(fm.createFile(atPath: url.path, contents: Data(contents.utf8)))
+    }
+    func contents(_ name: String) -> String? {
+        (try? Data(contentsOf: folder.appendingPathComponent(name))).map { String(decoding: $0, as: UTF8.self) }
+    }
+
+    try! LockScreenFiles.mirror(sourceA, into: folder, now: Date(timeIntervalSince1970: 1_000))
+    guard let nameA = LockScreenFiles.videoName(forSourcePath: sourceA.path),
+          let nameB = LockScreenFiles.videoName(forSourcePath: sourceB.path) else {
+        preconditionFailure("mp4 and MOV sources must get names")
+    }
+    precondition(LockScreenFiles.readState(in: folder) == LockScreenState(file: nameA, updated: 1_000))
+    precondition(contents(nameA) == "one")
+    precondition(LockScreenFiles.videoURL(for: LockScreenState(file: nameA, updated: 1), in: folder)?
+        .lastPathComponent == nameA)
+    // The same source again: no new copy and no rewrite, so the extension does not restart the video.
+    try! LockScreenFiles.mirror(sourceA, into: folder, now: Date(timeIntervalSince1970: 2_000))
+    precondition(LockScreenFiles.readState(in: folder)?.updated == 1_000)
+    // A state.json in the 0.2.0-dev format (with a title) is rewritten without it, keeping `updated`.
+    try! Data(#"{"file":"\#(nameA)","title":"A","updated":1000}"#.utf8)
+        .write(to: folder.appendingPathComponent(LockScreenFiles.stateName))
+    try! LockScreenFiles.mirror(sourceA, into: folder, now: Date(timeIntervalSince1970: 2_200))
+    precondition(contents(LockScreenFiles.stateName) == #"{"file":"\#(nameA)","updated":1000}"#)
+    // The same path with new content (same size, new modification date): copied again, state rewritten.
+    precondition(fm.createFile(atPath: sourceA.path, contents: Data("uno".utf8)))
+    try! fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_234_567)], ofItemAtPath: sourceA.path)
+    try! LockScreenFiles.mirror(sourceA, into: folder, now: Date(timeIntervalSince1970: 2_500))
+    precondition(contents(nameA) == "uno" && LockScreenFiles.readState(in: folder)?.updated == 2_500)
+
+    // Two paths in the same temp dir are on one volume; a path that does not exist has no identifier.
+    precondition(LockScreenFiles.isSameVolume(sourceA, folder))
+    precondition(!LockScreenFiles.isSameVolume(sourceA, root.appendingPathComponent("missing")))
+
+    // A partial copy an interrupted run left behind is replaced, and no partial file stays.
+    precondition(fm.createFile(atPath: folder.appendingPathComponent(".partial-" + nameB).path, contents: Data("junk".utf8)))
+    try! LockScreenFiles.mirror(sourceB, into: folder, now: Date(timeIntervalSince1970: 3_000))
+    precondition(LockScreenFiles.readState(in: folder) == LockScreenState(file: nameB, updated: 3_000))
+    precondition(nameB.hasSuffix(".mov") && contents(nameB) == "two" && contents(nameA) == nil)
+    precondition(contents("current.mp4") == "spike" && contents("notes.txt") == "mine")
+    precondition(!(try! fm.contentsOfDirectory(atPath: folder.path)).contains { $0.hasPrefix(".partial-") })
+
+    // A symlinked source is copied as the file it points to; a type the Lock Screen does not play is refused.
+    let linkedSource = root.appendingPathComponent("src/linked.mp4"), target = root.appendingPathComponent("src/c.mp4")
+    precondition(fm.createFile(atPath: target.path, contents: Data("three".utf8)))
+    try! fm.createSymbolicLink(at: linkedSource, withDestinationURL: target)
+    try! LockScreenFiles.mirror(linkedSource, into: folder, now: Date(timeIntervalSince1970: 3_500))
+    guard let linkedName = LockScreenFiles.readState(in: folder)?.file else { preconditionFailure("no state") }
+    precondition(linkedName != nameB && contents(linkedName) == "three"
+        && (try! fm.attributesOfItem(atPath: folder.appendingPathComponent(linkedName).path))[.type] as? FileAttributeType == .typeRegular)
+    do {
+        try LockScreenFiles.mirror(root.appendingPathComponent("src/live.m3u8"), into: folder)
+        preconditionFailure("an .m3u8 source must be refused")
+    } catch {
+        precondition(error as? LockScreenFilesError == .unsupportedType("m3u8"), "\(error)")
+    }
+    precondition(LockScreenFiles.readState(in: folder)?.file == linkedName)
+
+    // The extension's checks: a missing file, a symlink out of the folder, a folder posing as a video.
+    precondition(LockScreenFiles.videoURL(for: LockScreenState(file: nameA, updated: 1), in: folder) == nil)
+    let link = "video-cccccccccccccccc.mp4", directory = "video-dddddddddddddddd.mp4"
+    try! fm.createSymbolicLink(at: folder.appendingPathComponent(link), withDestinationURL: root.appendingPathComponent("outside.mp4"))
+    precondition(LockScreenFiles.videoURL(for: LockScreenState(file: link, updated: 1), in: folder) == nil)
+    try! fm.createDirectory(at: folder.appendingPathComponent(directory), withIntermediateDirectories: false)
+    precondition(LockScreenFiles.videoURL(for: LockScreenState(file: directory, updated: 1), in: folder) == nil)
+
+    // state.json must be a regular file of at most 4 KB: oversized, a symlink to a valid state, and a FIFO
+    // (which must not block the reader) all read as no state.
+    let stateURL = folder.appendingPathComponent(LockScreenFiles.stateName)
+    let valid = try! LockScreenFiles.encode(LockScreenState(file: nameB, updated: 1))
+    try! (valid + Data(repeating: 0x20, count: 5_000)).write(to: stateURL)
+    precondition(LockScreenFiles.readState(in: folder) == nil)
+    let elsewhere = root.appendingPathComponent("state-elsewhere.json")
+    try! valid.write(to: elsewhere)
+    try! fm.removeItem(at: stateURL)
+    try! fm.createSymbolicLink(at: stateURL, withDestinationURL: elsewhere)
+    precondition(LockScreenFiles.readState(in: folder) == nil)
+    try! fm.removeItem(at: stateURL)
+    precondition(mkfifo(stateURL.path, 0o600) == 0)
+    precondition(LockScreenFiles.readState(in: folder) == nil)
+
+    // Clear removes state.json and the app's videos (the link and folder too: their names are ours),
+    // never the user's files.
+    try! LockScreenFiles.clear(folder)
+    let left = Set(try! fm.contentsOfDirectory(atPath: folder.path))
+    precondition(left == ["current.mp4", "notes.txt"], "\(left)")
+    precondition(fm.fileExists(atPath: root.appendingPathComponent("outside.mp4").path))
+    try! LockScreenFiles.clear(root.appendingPathComponent("absent"))
+    try! fm.removeItem(at: root)
+}
+
+// MARK: LockScreenPlayback (the extension decodes only when locked or under the screen saver)
+
+do {
+    let desktop = SurfacePresentation(isPreview: false)
+    let preview = SurfacePresentation(isPreview: true)
+    let locked = ScreenState(screenLocked: true)
+    precondition(!LockScreenPlayback.shouldDecode(desktop, ScreenState()))
+    precondition(LockScreenPlayback.shouldDecode(desktop, locked))
+    precondition(LockScreenPlayback.shouldDecode(desktop, ScreenState(screenSaverRunning: true)))
+    precondition(LockScreenPlayback.shouldDecode(SurfacePresentation(isPreview: false, mode: .locked), ScreenState()))
+    precondition(LockScreenPlayback.shouldDecode(SurfacePresentation(isPreview: false, mode: .idle), ScreenState()))
+    precondition(!LockScreenPlayback.shouldDecode(preview, locked))
+    precondition(!LockScreenPlayback.shouldDecode(desktop, ScreenState(screenLocked: true, displaysAsleep: true)))
+    precondition(!LockScreenPlayback.shouldDecode(SurfacePresentation(isPreview: false, activity: .suspended), locked))
+    precondition(PresentationMode(caseName: "default") == .desktop && PresentationMode(caseName: "locked") == .locked)
+    precondition(PresentationMode(caseName: "idle") == .idle && PresentationMode(caseName: "new") == .other)
+    precondition(ActivityState(caseName: "suspendedForDisplaySleep") == .suspended)
+    precondition(ActivityState(caseName: "active") == .active && ActivityState(caseName: "x") == .other)
+}
+
 print("selftest ok")

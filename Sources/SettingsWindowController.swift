@@ -24,7 +24,8 @@ final class SettingsWindowController {
     private func makeWindow() -> NSWindow {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 560),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.contentView = NSHostingView(rootView: SettingsView(settings: settings, library: library))
+        window.contentView = NSHostingView(rootView: SettingsView(settings: settings, library: library,
+                                                                  lockScreen: library.lockScreen))
         window.isReleasedWhenClosed = false
         window.center()
         // AppSettings switches L10n in willSet, before this sink runs, so the title is already in the new language.

@@ -94,6 +94,30 @@ Glowdrop เล่นวิดีโอวนซ้ำเป็นพื้น�
 ยังไม่รองรับไฟล์ WebM และ MKV ให้แปลงเป็น MP4 ก่อน
 ใส่เฉพาะวิดีโอที่คุณมีสิทธิ์ใช้งาน
 
+## หน้าล็อก (ทดลอง, macOS 26 ขึ้นไป)
+
+Glowdrop แสดงวอลเปเปอร์ที่เล่นอยู่บนหน้าล็อกได้ด้วย วิดีโอจะเล่นเฉพาะตอนล็อกหน้าจอหรือตอนภาพพักหน้าจอทำงาน
+นอกนั้นจะค้างเป็นภาพนิ่ง
+
+1. เปิด Glowdrop อย่างน้อยหนึ่งครั้ง (หลังกด **Open Anyway** ตามขั้นตอนติดตั้งด้านบน) ก่อนไปหาใน
+   System Settings → Wallpaper
+2. ใน Settings (⌘,) → หน้าล็อก (ทดลอง) เปิด **แสดงบนหน้าล็อก**
+3. ทำครั้งเดียว: กด **เปิดการตั้งค่าวอลเปเปอร์…** (หรือเปิด System Settings → Wallpaper) แล้วเลือก **Glowdrop**
+
+ถ้าไม่เห็นช่อง Glowdrop ใน Wallpaper คุณรันคำสั่งนี้เองได้ คำสั่งนี้บอก macOS ให้เชื่อถือส่วนเสริมวอลเปเปอร์ที่อยู่ใน
+Glowdrop ชุดนี้:
+`/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f -trusted /Applications/Glowdrop.app`
+ถ้าจะยกเลิก ให้รันคำสั่งเดิมโดยใช้ `-u` แทน `-f -trusted`:
+`/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u /Applications/Glowdrop.app`
+
+ถ้าจะปิด ให้เลือกวอลเปเปอร์อื่นใน System Settings → Wallpaper ก่อน แล้วค่อยปิด **แสดงบนหน้าล็อก**
+
+ฟีเจอร์นี้ใช้ส่วนของ macOS ที่ Apple ไม่ได้เปิดเผยเป็นทางการ จึงอาจหยุดทำงานหลังอัปเดต macOS
+Glowdrop จะคัดลอกวิดีโอที่เล่นอยู่ (mp4, mov หรือ m4v) ไปไว้ที่ `~/Library/Application Support/Glowdrop/LockScreen/`
+ซึ่งเป็นโฟลเดอร์เดียวที่ส่วนเสริมหน้าล็อกอ่านได้ การคัดลอกจะเป็นการ clone บน APFS ทันทีเฉพาะเมื่อวิดีโออยู่ในไดรฟ์เดียวกัน
+ถ้าวิดีโออยู่คนละไดรฟ์ จะคัดลอกทั้งไฟล์และใช้พื้นที่ดิสก์เท่าขนาดวิดีโอ ไฟล์ที่คัดลอกไว้นี้แอปอื่นที่รันในชื่อผู้ใช้ของคุณอ่านได้
+ต่างจากไฟล์ในโฟลเดอร์ที่ macOS ป้องกันไว้ เช่น Desktop หรือ Documents
+
 ## Build จากซอร์สโค้ด
 
 ต้องมี Xcode Command Line Tools (`xcode-select --install`) ไม่ต้องใช้โปรเจกต์ Xcode
@@ -114,6 +138,12 @@ bash build.sh --release   # แอป universal + dist/Glowdrop-<เวอร์
 
 Glowdrop ไม่มีโค้ดเชื่อมต่อเครือข่ายและไม่เก็บข้อมูลใดๆ การตั้งค่าเก็บไว้ใน user defaults ของ macOS
 วิดีโออ่านจากโฟลเดอร์ที่คุณเลือกเท่านั้น
+
+## เครดิต
+
+ส่วนเชื่อมต่อของส่วนเสริมหน้าล็อก (extension point ของวอลเปเปอร์ อินเทอร์เฟซ XPC และส่วนเล่นวิดีโอ)
+ดัดแปลงมาจาก [Phosphene](https://github.com/kageroumado/phosphene) ซึ่งใช้สัญญาอนุญาต MIT
+ดู [THIRD_PARTY_LICENSES/phosphene-LICENSE](THIRD_PARTY_LICENSES/phosphene-LICENSE)
 
 ## สัญญาอนุญาต
 
