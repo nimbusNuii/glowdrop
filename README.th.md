@@ -33,16 +33,17 @@ Glowdrop เล่นวิดีโอวนซ้ำเป็นพื้น�
 
 ## วิธีติดตั้ง
 
-1. ดาวน์โหลด `Glowdrop-<เวอร์ชัน>.zip` จาก[หน้า Releases](https://github.com/nimbusNuii/glowdrop/releases)เท่านั้น อย่าใช้ไฟล์ที่มีคนส่งต่อมาในแชต
-   เพราะแอปไม่ได้เซ็นกับ Apple ไฟล์ที่ถูกแก้จะดูเหมือนของจริงทุกอย่าง
+1. ดาวน์โหลด `Glowdrop-<เวอร์ชัน>.dmg` จาก[หน้า Releases](https://github.com/nimbusNuii/glowdrop/releases)เท่านั้น (มีแบบ `.zip` ด้วย)
+   อย่าใช้ไฟล์ที่มีคนส่งต่อมาในแชต เพราะแอปไม่ได้เซ็นกับ Apple ไฟล์ที่ถูกแก้จะดูเหมือนของจริงทุกอย่าง
 2. เช็คว่าไฟล์เป็นของแท้ เปิด Terminal แล้วรัน
 
    ```sh
-   shasum -a 256 ~/Downloads/Glowdrop-<เวอร์ชัน>.zip
+   shasum -a 256 ~/Downloads/Glowdrop-<เวอร์ชัน>.dmg
    ```
 
    เทียบผลกับค่า SHA-256 ในหน้า Release ถ้าไม่ตรงกัน ให้ลบไฟล์ทิ้ง
-3. แตกไฟล์ แล้วย้าย `Glowdrop.app` ไปไว้ในโฟลเดอร์ Applications
+3. ดับเบิลคลิกไฟล์ `.dmg` แล้วลากไอคอน **Glowdrop** ไปวางที่โฟลเดอร์ **Applications** ในหน้าต่างนั้น เสร็จแล้วกด Eject
+   (ถ้าใช้ `.zip`: แตกไฟล์ แล้วย้าย `Glowdrop.app` ไปไว้ในโฟลเดอร์ Applications)
 4. เปิดแอป ครั้งแรก macOS จะไม่ยอมให้เปิด เพราะแอปไม่ได้ผ่านการรับรอง (notarize) จาก Apple
    (เป็นโปรเจกต์ฟรีที่ไม่มีบัญชีนักพัฒนาแบบเสียเงิน) ให้ทำแบบนี้:
    - **macOS 15 ขึ้นไป**: เปิด System Settings → Privacy & Security เลื่อนลงไปหาข้อความเกี่ยวกับ Glowdrop
@@ -100,7 +101,7 @@ Glowdrop เล่นวิดีโอวนซ้ำเป็นพื้น�
 ```sh
 bash build.sh             # สร้าง build/Glowdrop.app สำหรับเครื่องนี้ และรันชุดทดสอบ
 bash build.sh --install   # สร้างแล้วคัดลอกไปไว้ที่ ~/Applications
-bash build.sh --release   # แอป universal + dist/Glowdrop-<เวอร์ชัน>.zip
+bash build.sh --release   # แอป universal + dist/Glowdrop-<เวอร์ชัน>.dmg และ .zip
 ```
 
 `--release` จะเรนเดอร์วอลเปเปอร์ที่ติดมากับแอปก่อน (ใช้เวลาไม่กี่นาที) ลงใน `Resources/Wallpapers` ด้วย
