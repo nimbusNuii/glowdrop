@@ -1,0 +1,85 @@
+/* Menu bar menu */
+"menu.playing" = "กำลังเล่น: %@";
+"menu.nothingPlaying" = "ยังไม่ได้เลือกวิดีโอ";
+"menu.autoPaused" = "หยุดอัตโนมัติ: %@";
+"menu.library" = "คลังวิดีโอ…";
+"menu.pause" = "หยุดชั่วคราว";
+"menu.resume" = "เล่นต่อ";
+"menu.settings" = "การตั้งค่า…";
+"menu.quit" = "ออกจาก Glowdrop";
+"menu.close" = "ปิดหน้าต่าง";
+"menu.edit" = "แก้ไข";
+"menu.cut" = "ตัด";
+"menu.copy" = "คัดลอก";
+"menu.paste" = "วาง";
+"menu.selectAll" = "เลือกทั้งหมด";
+
+/* Auto-pause reasons */
+"pause.reason.screensAsleep" = "จอดับอยู่";
+"pause.reason.screenLocked" = "ล็อกหน้าจออยู่";
+"pause.reason.lowPowerMode" = "โหมดประหยัดพลังงาน";
+"pause.reason.onBattery" = "ใช้แบตเตอรี่อยู่";
+"pause.reason.desktopCovered" = "มีหน้าต่างบังพื้นหลังทั้งหมด";
+
+/* Gallery */
+"gallery.all" = "ทั้งหมด";
+"gallery.categories" = "หมวดหมู่";
+"gallery.myVideos" = "ไฟล์ของฉัน";
+"gallery.other" = "อื่นๆ";
+"gallery.count.one" = "1 วิดีโอ";
+"gallery.count.other" = "%ld วิดีโอ";
+"gallery.addVideo" = "เพิ่มวิดีโอ…";
+"gallery.openLibraryFolder" = "เปิดโฟลเดอร์คลัง";
+"gallery.search" = "ค้นหา";
+"gallery.empty" = "ลากวิดีโอมาวางที่นี่ หรือกด เพิ่มวิดีโอ…";
+"gallery.noResults" = "ไม่พบวิดีโอที่ตรงกับ “%@”";
+"gallery.dismiss" = "ปิด";
+"gallery.error.notVideo" = "ไฟล์นี้ไม่ใช่วิดีโอ: %@";
+"gallery.error.unsupportedFormat" = "ไฟล์รูปแบบนี้ยังไม่รองรับ (รองรับ MP4, MOV, M4V)";
+"gallery.error.drop" = "อ่านไฟล์ที่ลากมาไม่ได้: %@";
+
+/* Library */
+"library.error.folder" = "เปิดโฟลเดอร์คลังไม่ได้: %@";
+"library.error.notFolder" = "เลือกโฟลเดอร์ที่เปิดอ่านได้";
+"library.error.missingFile" = "ไม่พบไฟล์วิดีโอนี้: %@";
+"library.error.cantPlay" = "เล่นไฟล์นี้ไม่ได้: %@";
+"library.warning.badSidecar" = "ข้าม wallpapers.json ที่อ่านไม่ได้ใน: %@";
+"library.warning.unreadable" = "อ่านโฟลเดอร์เหล่านี้ไม่ได้: %@";
+
+/* Cards */
+"card.playing" = "กำลังเล่น";
+"card.hint" = "คลิกเพื่อตั้งเป็นพื้นหลัง";
+"card.has4K" = "มี 4K";
+"card.remove" = "เอาออกจากรายการ";
+
+/* Shared */
+"common.showInFinder" = "แสดงใน Finder";
+"common.refresh" = "รีเฟรช";
+
+/* Settings */
+"settings.title" = "การตั้งค่า";
+"settings.general" = "ทั่วไป";
+"settings.openAtLogin" = "เปิดตอนล็อกอิน";
+"settings.loginApproval" = "อนุญาต Glowdrop ใน System Settings > General > Login Items";
+"settings.loginError" = "ตั้งค่าเปิดตอนล็อกอินไม่สำเร็จ: %@";
+"settings.language" = "ภาษา";
+"settings.language.system" = "ตามระบบ";
+"settings.playback" = "การเล่น";
+"settings.quality" = "ความละเอียด";
+"settings.quality.auto" = "อัตโนมัติ";
+"settings.quality.footnote" = "อัตโนมัติจะเล่น 4K เมื่อจอกว้างตั้งแต่ 3200 พิกเซลและเสียบสายชาร์จอยู่ นอกนั้นเล่น 2K";
+"settings.energy" = "ประหยัดพลังงาน";
+"settings.pauseCovered" = "หยุดเมื่อมีหน้าต่างบังพื้นหลัง";
+"settings.pauseLocked" = "หยุดเมื่อล็อกหน้าจอ";
+"settings.pauseLowPower" = "หยุดในโหมดประหยัดพลังงาน";
+"settings.pauseBattery" = "หยุดเมื่อใช้แบตเตอรี่";
+"settings.offline" = "แอปนี้ทำงานออฟไลน์ ไม่เชื่อมต่ออินเทอร์เน็ต";
+"settings.library" = "คลัง";
+"settings.libraryFolder" = "โฟลเดอร์";
+"settings.change" = "เปลี่ยน…";
+"settings.choose" = "เลือก";
+"settings.about" = "เกี่ยวกับ";
+"settings.version" = "เวอร์ชัน %@";
+"settings.description" = "วอลเปเปอร์เคลื่อนไหวจากวิดีโอของคุณเอง ใช้งานได้จากแถบเมนู";
+"settings.openSource" = "ฟรีและเป็นโอเพนซอร์ส ภายใต้สัญญาอนุญาต MIT";
+"settings.viewLicense" = "ดูสัญญาอนุญาต";

@@ -1,0 +1,85 @@
+/* Menu bar menu */
+"menu.playing" = "Playing: %@";
+"menu.nothingPlaying" = "No video selected";
+"menu.autoPaused" = "Paused automatically: %@";
+"menu.library" = "Library…";
+"menu.pause" = "Pause";
+"menu.resume" = "Resume";
+"menu.settings" = "Settings…";
+"menu.quit" = "Quit Glowdrop";
+"menu.close" = "Close Window";
+"menu.edit" = "Edit";
+"menu.cut" = "Cut";
+"menu.copy" = "Copy";
+"menu.paste" = "Paste";
+"menu.selectAll" = "Select All";
+
+/* Auto-pause reasons */
+"pause.reason.screensAsleep" = "Display is asleep";
+"pause.reason.screenLocked" = "Screen is locked";
+"pause.reason.lowPowerMode" = "Low Power Mode is on";
+"pause.reason.onBattery" = "On battery power";
+"pause.reason.desktopCovered" = "Windows cover the desktop";
+
+/* Gallery */
+"gallery.all" = "All";
+"gallery.categories" = "Categories";
+"gallery.myVideos" = "My Videos";
+"gallery.other" = "Other";
+"gallery.count.one" = "1 video";
+"gallery.count.other" = "%ld videos";
+"gallery.addVideo" = "Add Video…";
+"gallery.openLibraryFolder" = "Open Library Folder";
+"gallery.search" = "Search";
+"gallery.empty" = "Drag videos here, or click Add Video…";
+"gallery.noResults" = "No videos match “%@”";
+"gallery.dismiss" = "Dismiss";
+"gallery.error.notVideo" = "Not a video file: %@";
+"gallery.error.unsupportedFormat" = "This video format isn’t supported (MP4, MOV, M4V work)";
+"gallery.error.drop" = "Couldn’t read the dropped file: %@";
+
+/* Library */
+"library.error.folder" = "Can’t open the library folder: %@";
+"library.error.notFolder" = "Choose a folder you can open.";
+"library.error.missingFile" = "This video file is missing: %@";
+"library.error.cantPlay" = "Can’t play this file: %@";
+"library.warning.badSidecar" = "Skipped an unreadable wallpapers.json in: %@";
+"library.warning.unreadable" = "Couldn’t read these folders: %@";
+
+/* Cards */
+"card.playing" = "Playing";
+"card.hint" = "Click to set as wallpaper";
+"card.has4K" = "4K available";
+"card.remove" = "Remove from List";
+
+/* Shared */
+"common.showInFinder" = "Show in Finder";
+"common.refresh" = "Refresh";
+
+/* Settings */
+"settings.title" = "Settings";
+"settings.general" = "General";
+"settings.openAtLogin" = "Open at login";
+"settings.loginApproval" = "Allow Glowdrop in System Settings > General > Login Items.";
+"settings.loginError" = "Couldn’t change Open at login: %@";
+"settings.language" = "Language";
+"settings.language.system" = "System";
+"settings.playback" = "Playback";
+"settings.quality" = "Quality";
+"settings.quality.auto" = "Automatic";
+"settings.quality.footnote" = "Automatic plays 4K when a screen is at least 3200 pixels wide and the Mac is plugged in, otherwise 2K.";
+"settings.energy" = "Energy";
+"settings.pauseCovered" = "Pause when windows cover the desktop";
+"settings.pauseLocked" = "Pause when the screen is locked";
+"settings.pauseLowPower" = "Pause in Low Power Mode";
+"settings.pauseBattery" = "Pause on battery power";
+"settings.offline" = "This app works offline and never connects to the internet.";
+"settings.library" = "Library";
+"settings.libraryFolder" = "Folder";
+"settings.change" = "Change…";
+"settings.choose" = "Choose";
+"settings.about" = "About";
+"settings.version" = "Version %@";
+"settings.description" = "Moving wallpapers from your own videos, right from the menu bar.";
+"settings.openSource" = "Free and open source under the MIT License.";
+"settings.viewLicense" = "View License";
