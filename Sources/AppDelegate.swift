@@ -1,7 +1,10 @@
 import AppKit
+import Combine
+import os
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    nonisolated private static let logger = Logger(subsystem: "io.github.nimbusnuii.glowdrop", category: "wallpaper")
     private let settings: AppSettings
     private let controller: WallpaperController
     private lazy var library = VideoLibrary(settings: settings, onApply: { [weak self] url in self?.controller.play(url: url) })
@@ -12,12 +15,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let autoPauseItem = NSMenuItem()
     private let libraryItem = NSMenuItem()
     private let pauseItem = NSMenuItem()
+    private let restartAgentItem = NSMenuItem()
     private let settingsItem = NSMenuItem()
     private let quitItem = NSMenuItem()
     private var didFinishLaunching = false
     private var openedFileAtLaunch = false
     /// The saved wallpaper re-applied at launch, until the player has checked it.
     private var launchPath: String?
+    private var engineSubscription: AnyCancellable?
 
     override init() {
         let settings = AppSettings()
@@ -29,6 +34,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.library.playbackReady(url)
         }
         controller.onPlaybackFailed = { [weak self] url in self?.playbackFailed(url) }
+        // Before any file is applied (open events can arrive before launch finishes): the system engine never
+        // flashes a window.
+        controller.setDesktopWindowsEnabled(!settings.usesSystemEngine)
+        // @Published emits before storing, so read the stored engine on the next main-queue turn.
+        engineSubscription = settings.$engine.removeDuplicates().dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.engineChanged() }
+    }
+
+    /// The window engine draws again from the current file; the system engine leaves the desktop to macOS.
+    private func engineChanged() {
+        let usesWindow = !settings.usesSystemEngine
+        controller.setDesktopWindowsEnabled(usesWindow)
+        if usesWindow, let path = library.currentPath { library.apply(URL(fileURLWithPath: path)) }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -46,6 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self, !self.openedFileAtLaunch, savedPath == nil else { return }
             self.applyDefaultOrShowGallery()
         }
+        scheduleExtensionHealthCheck()
     }
 
     /// The gallery comes forward so its banner explains the failure. A saved wallpaper that no longer plays
@@ -92,13 +112,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         libraryItem.action = #selector(showGallery)
         pauseItem.action = #selector(togglePause)
+        restartAgentItem.action = #selector(restartWallpaperAgent)
         settingsItem.action = #selector(showSettings)
         settingsItem.keyEquivalent = ","
         quitItem.action = #selector(quit)
         quitItem.keyEquivalent = "q"
         let menu = NSMenu()
         menu.delegate = self
-        let entries = [statusLine, autoPauseItem, .separator(), libraryItem, pauseItem, settingsItem, .separator(), quitItem]
+        let entries = [statusLine, autoPauseItem, .separator(), libraryItem, pauseItem, restartAgentItem, settingsItem,
+                       .separator(), quitItem]
         for entry in entries {
             entry.target = entry.action == nil ? nil : self
             menu.addItem(entry)
@@ -135,6 +157,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         autoPauseItem.title = reason.map { L10n.f("menu.autoPaused", L10n.t($0.rawValue)) } ?? ""
         libraryItem.title = L10n.t("menu.library")
         pauseItem.title = L10n.t(controller.isUserPaused ? "menu.resume" : "menu.pause")
+        restartAgentItem.isHidden = !usesWallpaperAgent
+        restartAgentItem.title = L10n.t("menu.restartAgent")
         settingsItem.title = L10n.t("menu.settings")
         quitItem.title = L10n.t("menu.quit")
     }
@@ -148,7 +172,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func togglePause() {
-        controller.setPaused(!controller.isUserPaused)
+        let paused = !controller.isUserPaused
+        controller.setPaused(paused)
+        library.setPaused(paused)
+    }
+
+    /// The Wallpaper Agent plays Glowdrop only through the extension (macOS 26+).
+    private var usesWallpaperAgent: Bool {
+        guard #available(macOS 26, *) else { return false }
+        return settings.usesSystemEngine || settings.lockScreenSync
+    }
+
+    @objc private func restartWallpaperAgent() {
+        DispatchQueue.global(qos: .userInitiated).async { WallpaperAgentHealth.restartAgent(logger: Self.logger) }
+    }
+
+    // shortcut: LaunchServices re-registers the ad-hoc-signed app on each launch and stops the extension; drop this when signed/notarized builds no longer re-register.
+    private func scheduleExtensionHealthCheck() {
+        guard usesWallpaperAgent else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+            DispatchQueue.global(qos: .utility).async {
+                guard WallpaperAgentHealth.isGlowdropSelected(), !WallpaperAgentHealth.isExtensionRunning() else { return }
+                Self.logger.notice("extension stopped after launch; restarting WallpaperAgent")
+                WallpaperAgentHealth.restartAgent(logger: Self.logger)
+            }
+        }
     }
 
     @objc private func quit() {

@@ -1,4 +1,4 @@
-// Watches the LockScreen folder the app writes and hands each state to the store.
+// Watches the LockScreen folder the app writes and hands each state and catalog to the store.
 
 import Foundation
 
@@ -9,11 +9,11 @@ final class StateWatcher {
     private static let retryInterval: TimeInterval = 10
 
     private let folder: URL
-    private let onChange: @MainActor (LockScreenState?, URL?) -> Void
+    private let onChange: @MainActor (LockScreenState?, URL?, WallpaperCatalog?) -> Void
     private var source: (any DispatchSourceFileSystemObject)?
     private var pendingReload: DispatchWorkItem?
 
-    init(folder: URL, onChange: @escaping @MainActor (LockScreenState?, URL?) -> Void) {
+    init(folder: URL, onChange: @escaping @MainActor (LockScreenState?, URL?, WallpaperCatalog?) -> Void) {
         self.folder = folder
         self.onChange = onChange
     }
@@ -67,6 +67,6 @@ final class StateWatcher {
         let state = LockScreenFiles.readState(in: folder)
         let url = state.flatMap { LockScreenFiles.videoURL(for: $0, in: folder) }
         if let state, url == nil { wallpaperLog("[State] \(state.file) is not a readable file in the folder") }
-        onChange(state, url)
+        onChange(state, url, LockScreenFiles.readCatalog(in: folder))
     }
 }

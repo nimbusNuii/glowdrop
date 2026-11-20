@@ -14,9 +14,18 @@ struct WallpaperExtensionConfig: AppExtensionConfiguration {
         }
         connection.exportedInterface = makeExportedInterface()
         connection.remoteObjectInterface = NSXPCInterface(with: (any WallpaperExtensionProxyXPCProtocol).self)
-        connection.exportedObject = WallpaperXPCHandler()
+        let handler = WallpaperXPCHandler()
+        connection.exportedObject = handler
         connection.interruptionHandler = { wallpaperLog("XPC interrupted") }
-        connection.invalidationHandler = { wallpaperLog("XPC invalidated") }
+        connection.invalidationHandler = { [weak handler] in
+            wallpaperLog("XPC invalidated")
+            guard let handler else { return }
+            handler.agentProxy = nil
+            SettingsPush.unregister(handler)
+        }
+        // Before resume, so an early callback never sees a nil proxy.
+        handler.agentProxy = connection.remoteObjectProxy as? (any WallpaperExtensionProxyXPCProtocol)
+        SettingsPush.register(handler)
         connection.resume()
         wallpaperLog("XPC accepted")
         return true

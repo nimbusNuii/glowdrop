@@ -12,13 +12,17 @@ final class WallpaperController {
     private var conditions = PlaybackConditions()
     private var rulesSubscription: AnyCancellable?
     private var playGeneration = 0
+    /// False while macOS plays the wallpaper (system engine): files are still checked, but never drawn.
+    private var desktopWindowsEnabled = true
     /// Called with a file once its playable check passed and it replaced what was playing.
     var onPlaybackReady: (@MainActor (URL) -> Void)?
     /// Called with a file that turned out to be unplayable; whatever played before keeps playing.
     var onPlaybackFailed: (@MainActor (URL) -> Void)?
 
     var isUserPaused: Bool { conditions.userPaused }
-    var autoPauseReason: AutoPauseReason? { PlaybackPolicy.autoPauseReason(conditions) }
+    var autoPauseReason: AutoPauseReason? {
+        desktopWindowsEnabled ? PlaybackPolicy.autoPauseReason(conditions) : nil
+    }
 
     init(settings: AppSettings) {
         player.isMuted = true
@@ -97,12 +101,19 @@ final class WallpaperController {
     func play(url: URL) {
         playGeneration += 1
         let generation = playGeneration
-        let asset = AVURLAsset(url: url)
+        let asset = AVURLAsset(url: url, options: [AVURLAssetReferenceRestrictionsKey:
+                                                       AVAssetReferenceRestrictions.forbidAll.rawValue])
         Task {
             let playable = await Self.hasPlayableVideo(asset)
             // Another file was applied meanwhile; its own check decides.
             guard generation == playGeneration else { return }
-            if playable { startLooping(asset, url: url) } else { onPlaybackFailed?(url) }
+            if !playable {
+                onPlaybackFailed?(url)
+            } else if desktopWindowsEnabled {
+                startLooping(asset, url: url)
+            } else {
+                onPlaybackReady?(url)
+            }
         }
     }
 
@@ -132,6 +143,16 @@ final class WallpaperController {
         looper?.disableLooping()
         looper = nil
         player.removeAllItems()
+    }
+
+    /// Disabling stops the video and closes the windows (rebuildWindows then pauses the player, as there is no video).
+    /// Re-enabling shows nothing until the next `play(url:)`.
+    func setDesktopWindowsEnabled(_ enabled: Bool) {
+        desktopWindowsEnabled = enabled
+        guard !enabled else { return }
+        stopLooping()
+        conditions.hasVideo = false
+        rebuildWindows()
     }
 
     func setPaused(_ paused: Bool) {

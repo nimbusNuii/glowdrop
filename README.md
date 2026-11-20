@@ -21,6 +21,8 @@ It lives in the menu bar, pauses itself when nobody can see the wallpaper, and n
   or (optional) the Mac runs on battery.
 - **Picks the right size**: with `-4k` and `-2k` versions of a video, Auto quality plays 4K only on a wide
   display while plugged in, 2K otherwise.
+- **Plays like Aerials (macOS 26+, experimental)**: macOS plays your videos on the desktop and the Lock Screen,
+  even after you quit Glowdrop, with a tile per video in System Settings → Wallpaper.
 - **Library with categories**: every subfolder of the library folder becomes a category in the gallery.
 - **Easy to add**: drag a video onto the gallery, use "Add Video…", or right-click a video in Finder → Open With → Glowdrop.
 - **Thai and English** interface.
@@ -92,30 +94,48 @@ folder (Settings → Library, or the sidebar's "Open Library Folder"):
 WebM and MKV files are not supported; convert them to MP4 first.
 Only add videos you have the right to use.
 
-## Lock Screen (experimental, macOS 26+)
+## macOS wallpaper engine (experimental, macOS 26+)
 
-Glowdrop can show the current wallpaper on the Lock Screen too. The video plays only while the screen is
-locked or the screen saver is on; the rest of the time it holds a still frame.
+On macOS 26 or later Glowdrop can hand its videos to macOS, the way Apple's Aerials work:
 
-1. Open Glowdrop at least once (after **Open Anyway**, see [Install](#install)) before you look for it in
-   System Settings → Wallpaper.
-2. In Settings (⌘,) → Lock Screen (experimental), turn on **Show on Lock Screen**.
-3. Once: click **Open Wallpaper Settings…** (or open System Settings → Wallpaper) and choose **Glowdrop**.
+- The video keeps playing on the desktop and the Lock Screen after you quit Glowdrop.
+- Every wallpaper in the library gets its own tile in System Settings → Wallpaper, so each display or
+  Space can show a different video.
+- The **Glowdrop** tile follows whatever you pick in the Glowdrop app.
 
-If the Glowdrop tile does not appear in Wallpaper, you may run this command yourself; it tells macOS to trust
+Turn it on:
+
+1. Open Glowdrop at least once (after **Open Anyway**, see [Install](#install)).
+2. Settings (⌘,) → Wallpaper engine → choose **macOS wallpaper**.
+3. Click **Open Wallpaper Settings…** and choose **Glowdrop** (follows the app) or one of the Glowdrop
+   videos for each display.
+
+**Pause** in the menu bar, Low Power Mode and the battery rule work with both engines. "Pause when windows cover
+the desktop" works only with the Glowdrop window engine for now.
+
+If a wallpaper gets stuck, grey or shows the wrong video, choose **Restart Wallpaper Agent** in the menu bar.
+It does the same as `killall WallpaperAgent`; macOS starts the agent again by itself.
+
+Prefer the old way? Choose **Glowdrop window**: Glowdrop draws the video behind your icons while the app runs,
+and **Show on Lock Screen** puts the playing video on the Lock Screen too.
+
+If the Glowdrop tiles do not appear in Wallpaper, you may run this command yourself; it tells macOS to trust
 the wallpaper extension inside this copy of Glowdrop:
 `/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f -trusted /Applications/Glowdrop.app`.
 To undo it, run the same command with `-u` in place of `-f -trusted`:
 `/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u /Applications/Glowdrop.app`.
 
-To turn it off, first choose another wallpaper in System Settings → Wallpaper, then turn off
-**Show on Lock Screen**.
+To stop using it, first choose another wallpaper in System Settings → Wallpaper, then switch Glowdrop back to
+**Glowdrop window**.
 
-It uses undocumented macOS interfaces, so a macOS update may break it. Glowdrop copies the playing video
-(mp4, mov or m4v) to `~/Library/Application Support/Glowdrop/LockScreen/`, the only folder the lock-screen
-extension can read. The copy is an instant APFS clone only when the video is on the same drive; a video on
-another drive is copied in full and uses that much disk space. The copy can be read by other apps running as
-you, unlike files inside protected folders such as Desktop or Documents.
+It uses undocumented macOS interfaces, so a macOS update may break it; the Glowdrop window engine keeps working.
+Glowdrop puts copies of its videos (mp4, mov or m4v) in `~/Library/Application Support/Glowdrop/LockScreen/`,
+the only folder the wallpaper extension can read. On the same drive they are instant APFS clones that use almost
+no space. Videos on another drive get no tile of their own, because that would copy them in full; they still
+play through the **Glowdrop** tile, which copies only the playing video. The same goes for library videos that
+are links to files outside the library folder, and for "My Videos" files in Desktop, Documents, Downloads or
+iCloud Drive: Glowdrop never copies those folders' files on its own. The copies can be read by other apps
+running as you, unlike files inside protected folders such as Desktop or Documents.
 
 ## Build from source
 
@@ -140,7 +160,8 @@ videos are read from folders you choose.
 
 ## Credits
 
-The lock-screen extension's plumbing (the wallpaper extension point, its XPC interface and the video pipeline)
+The wallpaper extension's plumbing (the wallpaper extension point, its XPC interface, the Settings tiles and the
+video pipeline)
 is derived from [Phosphene](https://github.com/kageroumado/phosphene), MIT License; see
 [THIRD_PARTY_LICENSES/phosphene-LICENSE](THIRD_PARTY_LICENSES/phosphene-LICENSE).
 

@@ -4,6 +4,40 @@ All notable changes to Glowdrop are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-11-20
+
+### Added
+
+- macOS wallpaper engine (experimental, macOS 26 or later): Settings → Wallpaper engine → "macOS wallpaper" lets
+  macOS play Glowdrop videos on the desktop and the Lock Screen, like Aerials. Playback continues after you quit
+  Glowdrop. System Settings → Wallpaper shows a "Glowdrop" tile that follows the app plus one tile per library
+  video, so each display or Space can show a different video. The default stays "Glowdrop window".
+- Menu bar → "Restart Wallpaper Agent" (macOS 26 or later) for a stuck or grey wallpaper.
+- When a Glowdrop wallpaper is selected and macOS stopped its extension while Glowdrop launched, Glowdrop restarts
+  the Wallpaper Agent once, so the wallpaper keeps playing.
+- The wallpaper extension honours Pause, Low Power Mode, the battery rule and high thermal pressure, and keeps a
+  surface for 15 seconds after macOS releases it, so Space switches and wake do not flash dark.
+
+### Changed
+
+- The Lock Screen option is now part of the "Glowdrop window" engine; the macOS wallpaper engine always covers
+  the Lock Screen.
+- Pausing Glowdrop also pauses the Lock Screen video.
+
+### Security
+
+- The extension still has no network access and can read only
+  `~/Library/Application Support/Glowdrop/LockScreen/`. The new `catalog.json` there is read like `state.json`:
+  a regular, non-symlink file of at most 256 KB; entries must name a video file the app wrote, titles are cut to
+  80 characters without control characters, and at most 200 entries are used.
+- Videos on another drive get no tile of their own, so Glowdrop never copies a whole library across drives.
+- Glowdrop never copies videos out of protected folders on its own: library videos that are links to files outside
+  the library folder, and "My Videos" files in Desktop, Documents, Downloads or iCloud Drive get no tile.
+- The shared folder must be a real folder (not a symbolic link) before Glowdrop writes or deletes anything in it;
+  the extension ignores symbolic links inside it; tile titles drop invisible formatting characters.
+- Movies are opened with external references forbidden, so a video file can never make Glowdrop or the extension
+  load media from anywhere else.
+
 ## [0.2.0] - 2026-11-20
 
 ### Added

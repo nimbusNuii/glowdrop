@@ -2,12 +2,14 @@
 // See THIRD_PARTY_LICENSES/phosphene-LICENSE.
 
 import CoreGraphics
+import Foundation
 @preconcurrency import IOSurface
 
-/// A WallpaperSnapshotXPC (IOSurface) holding the current video's first frame, or the neutral dark image.
+/// A WallpaperSnapshotXPC (IOSurface) holding the first frame of surface `key`'s video (else of the app's video),
+/// or the neutral dark image.
 @MainActor
-func makeSnapshotXPC() async -> AnyObject? {
-    guard let image = await SurfaceStore.shared.stillImage() ?? makeSolidImage(neutralDark, width: 1_920, height: 1_080)
+func makeSnapshotXPC(for key: UUID?) async -> AnyObject? {
+    guard let image = await SurfaceStore.shared.stillImage(for: key) ?? makeSolidImage(neutralDark, width: 1_920, height: 1_080)
     else {
         wallpaperLog("[Snapshot] no image")
         return nil

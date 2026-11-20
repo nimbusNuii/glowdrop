@@ -4,8 +4,8 @@
 import ExtensionFoundation
 import Foundation
 
-/// The com.apple.wallpaper extension: shows the video Glowdrop mirrors into
-/// ~/Library/Application Support/Glowdrop/LockScreen on the lock screen (macOS 26+).
+/// The com.apple.wallpaper extension: plays the videos Glowdrop mirrors into
+/// ~/Library/Application Support/Glowdrop/LockScreen on the desktop and the lock screen (macOS 26+).
 @main
 final class GlowdropWallpaperExtension: NSObject, AppExtension {
     private static let wallpaperKitPath =

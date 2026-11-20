@@ -39,15 +39,19 @@ struct SettingsView: View {
     var body: some View {
         Form {
             general
+            if #available(macOS 26, *) { engineSection }
             playback
             energy
-            if #available(macOS 26, *) { lockScreenSection }
+            // The system engine always covers the Lock Screen.
+            if #available(macOS 26, *) {
+                if !settings.usesSystemEngine { lockScreenSection }
+            }
             librarySection
             about
         }
         .formStyle(.grouped)
         .tint(Theme.neon)
-        .frame(width: 520, height: 560)
+        .frame(width: 520, height: 680)
         .onAppear { state.refreshLogin() }
     }
 
@@ -64,6 +68,22 @@ struct SettingsView: View {
         }
     }
 
+    private var engineSection: some View {
+        Section {
+            Picker(L10n.t("settings.engine"), selection: $settings.engine) {
+                Text(verbatim: L10n.t("settings.engine.window")).tag(WallpaperEngine.window)
+                Text(verbatim: L10n.t("settings.engine.system")).tag(WallpaperEngine.system)
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+            footnote(L10n.t(settings.usesSystemEngine ? "settings.engine.system.footnote"
+                                                      : "settings.engine.window.footnote"))
+            if settings.usesSystemEngine { wallpaperSettingsControls }
+        } header: {
+            Text(verbatim: L10n.t("settings.engine"))
+        }
+    }
+
     private var playback: some View {
         Section(L10n.t("settings.playback")) {
             Picker(L10n.t("settings.quality"), selection: $settings.quality) {
@@ -77,8 +97,11 @@ struct SettingsView: View {
 
     private var energy: some View {
         Section {
-            Toggle(L10n.t("settings.pauseCovered"), isOn: $settings.pauseWhenCovered)
-            Toggle(L10n.t("settings.pauseLocked"), isOn: $settings.pauseWhenLocked)
+            // They pause only Glowdrop's windows; macOS decides when its own wallpaper plays.
+            if !settings.usesSystemEngine {
+                Toggle(L10n.t("settings.pauseCovered"), isOn: $settings.pauseWhenCovered)
+                Toggle(L10n.t("settings.pauseLocked"), isOn: $settings.pauseWhenLocked)
+            }
             Toggle(L10n.t("settings.pauseLowPower"), isOn: $settings.pauseInLowPowerMode)
             Toggle(L10n.t("settings.pauseBattery"), isOn: $settings.pauseOnBattery)
         } header: {
@@ -91,16 +114,21 @@ struct SettingsView: View {
     private var lockScreenSection: some View {
         Section {
             Toggle(L10n.t("settings.lockScreen.show"), isOn: $settings.lockScreenSync)
-            if let url = Self.wallpaperSettingsURL {
-                Button(L10n.t("settings.lockScreen.open")) { NSWorkspace.shared.open(url) }
-            }
-            if let error = lockScreen.lastError {
-                Text(verbatim: L10n.text(error)).font(.caption).foregroundColor(.red)
-            }
+            wallpaperSettingsControls
         } header: {
             Text(verbatim: L10n.t("settings.lockScreen"))
         } footer: {
             footnote(L10n.t("settings.lockScreen.footnote"))
+        }
+    }
+
+    /// Shared by both engines' sections: the way to System Settings and the last shared-folder error.
+    @ViewBuilder private var wallpaperSettingsControls: some View {
+        if let url = Self.wallpaperSettingsURL {
+            Button(L10n.t("settings.lockScreen.open")) { NSWorkspace.shared.open(url) }
+        }
+        if let error = lockScreen.lastError {
+            Text(verbatim: L10n.text(error)).font(.caption).foregroundColor(.red)
         }
     }
 

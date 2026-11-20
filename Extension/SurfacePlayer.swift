@@ -20,7 +20,7 @@ private func setDisallowsVideoLayerDisplayCompositing(_ layer: CALayer, _ flag: 
     unsafeBitCast(imp, to: SetBoolFn.self)(layer, sel, ObjCBool(flag))
 }
 
-private func withoutAnimation(_ changes: () -> Void) {
+func withoutAnimation(_ changes: () -> Void) {
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     changes()
@@ -58,7 +58,8 @@ final class SurfacePlayer {
         self.layer = layer
         renderer = layer.sampleBufferRenderer
         timebase = timebaseOut
-        asset = AVURLAsset(url: url)
+        asset = AVURLAsset(url: url, options: [AVURLAssetReferenceRestrictionsKey:
+                                                   AVAssetReferenceRestrictions.forbidAll.rawValue])
         CMTimebaseSetTime(timebase, time: .zero)
         CMTimebaseSetRate(timebase, rate: 0)
         layer.controlTimebase = timebase
@@ -78,6 +79,14 @@ final class SurfacePlayer {
         guard on != wantsDecoding, !isStopped else { return }
         wantsDecoding = on
         if on { startReading() } else { pause() }
+    }
+
+    /// Follows the surface's new geometry (another display, or a resolution change).
+    func resize(to bounds: CGRect, scale: CGFloat) {
+        withoutAnimation {
+            layer.frame = bounds
+            layer.contentsScale = scale
+        }
     }
 
     func stop() {
