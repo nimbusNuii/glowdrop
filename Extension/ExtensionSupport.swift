@@ -1,4 +1,5 @@
-// Logging, paths and the neutral fallback image shared by the wallpaper extension.
+// Logging, paths and the neutral fallback image shared by the wallpaper extension, which plays Glowdrop videos
+// on the desktop and the lock screen.
 
 import CoreGraphics
 import Foundation
@@ -35,6 +36,10 @@ enum WallpaperPaths {
 
     /// The tile image, inside the extension's own container.
     static let thumbnailURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents/thumbnail.png")
+
+    /// One tile image per catalog video (`<file>.png`), inside the extension's own container.
+    static let thumbnailsDir = URL(fileURLWithPath: NSHomeDirectory())
+        .appendingPathComponent("Documents/Thumbnails", isDirectory: true)
 }
 
 /// Same dark grey as the app's gallery background; shown when there is no video to show.
@@ -51,8 +56,15 @@ func makeSolidImage(_ color: CGColor, width: Int, height: Int) -> CGImage? {
     return ctx.makeImage()
 }
 
+/// Written beside `url` under a hidden temporary name, then renamed over it, so the agent never reads half a PNG.
 func writePNG(_ image: CGImage, to url: URL) -> Bool {
-    guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else { return false }
+    let temp = url.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).tmp")
+    guard let dest = CGImageDestinationCreateWithURL(temp as CFURL, "public.png" as CFString, 1, nil) else { return false }
     CGImageDestinationAddImage(dest, image, nil)
-    return CGImageDestinationFinalize(dest)
+    guard CGImageDestinationFinalize(dest), rename(temp.path, url.path) == 0 else {
+        // The caller logs the failure; a temporary file that survives this is harmless and small.
+        try? FileManager.default.removeItem(at: temp)
+        return false
+    }
+    return true
 }

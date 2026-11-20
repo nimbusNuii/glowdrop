@@ -162,25 +162,37 @@ func mirrorFindProperty(_ label: String, in value: Any, depth: Int = 0) -> Any? 
     return nil
 }
 
-/// Geometry and role read from a WallpaperCreationRequestXPC (`rawValue.destination`, `isPreview`).
+/// Geometry, role and choice read from a WallpaperCreationRequestXPC (`rawValue.destination`, `isPreview`,
+/// `rawValue.descriptor.configuration`).
 struct AcquireParams: Sendable {
     var size = CGSize(width: 2_560, height: 1_440)
     var scale: CGFloat = 2.0
     var displayID: UInt32?
     var isPreview = false
+    /// The picked tile's configuration as UTF-8; nil when the request carries none.
+    var choice: String?
 
     init(request: Any?) {
         guard let request else { return }
         if let destination = mirrorFindProperty("destination", in: request) {
             // Direct children only, as Phosphene reads them; a deep search could hit a nested `size`.
-            let fields = Dictionary(
-                Mirror(reflecting: destination).children.compactMap { child in child.label.map { ($0, child.value) } },
-                uniquingKeysWith: { first, _ in first }
-            )
+            let fields = directChildren(of: destination)
             if let size = fields["size"] as? CGSize { self.size = size }
             if let scale = fields["scaleFactor"] as? CGFloat { self.scale = scale }
             displayID = fields["directDisplayID"] as? UInt32
         }
+        if let descriptor = mirrorFindProperty("descriptor", in: request),
+           let configuration = directChildren(of: descriptor)["configuration"] as? Data, !configuration.isEmpty {
+            choice = String(data: configuration, encoding: .utf8)
+        }
         isPreview = (mirrorFindProperty("isPreview", in: request) as? Bool) ?? false
     }
+}
+
+/// A value's labelled stored properties, first label wins.
+private func directChildren(of value: Any) -> [String: Any] {
+    Dictionary(
+        Mirror(reflecting: value).children.compactMap { child in child.label.map { ($0, child.value) } },
+        uniquingKeysWith: { first, _ in first }
+    )
 }

@@ -1,10 +1,85 @@
 import CryptoKit
 import Foundation
 
-/// What the app tells the Lock Screen extension: which file in the LockScreen folder to play.
+/// What the app tells the wallpaper extension: which file in the LockScreen folder to play, and how.
 struct LockScreenState: Codable, Equatable, Sendable {
     let file: String
     let updated: Int
+    let flags: PlaybackFlags
+
+    init(file: String, updated: Int, flags: PlaybackFlags = PlaybackFlags()) {
+        self.file = file
+        self.updated = updated
+        self.flags = flags
+    }
+
+    private enum CodingKeys: String, CodingKey { case file, updated }
+
+    /// The flags sit beside `file` and `updated` in one flat JSON object.
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        file = try values.decode(String.self, forKey: .file)
+        updated = try values.decode(Int.self, forKey: .updated)
+        flags = try PlaybackFlags(from: decoder)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(file, forKey: .file)
+        try values.encode(updated, forKey: .updated)
+        try flags.encode(to: encoder)
+    }
+}
+
+/// How the extension plays, as the app's settings say.
+struct PlaybackFlags: Codable, Equatable, Sendable {
+    /// The extension also plays desktop surfaces, not only the Lock Screen.
+    let desktop: Bool
+    /// The user paused playback in the app.
+    let paused: Bool
+    let pauseInLowPowerMode: Bool
+    let pauseOnBattery: Bool
+
+    init(desktop: Bool = false, paused: Bool = false, pauseInLowPowerMode: Bool = true, pauseOnBattery: Bool = false) {
+        self.desktop = desktop
+        self.paused = paused
+        self.pauseInLowPowerMode = pauseInLowPowerMode
+        self.pauseOnBattery = pauseOnBattery
+    }
+
+    /// Every key is optional, so a 0.2.0 state.json (file and updated only) reads with the defaults.
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = PlaybackFlags()
+        desktop = try values.decodeIfPresent(Bool.self, forKey: .desktop) ?? defaults.desktop
+        paused = try values.decodeIfPresent(Bool.self, forKey: .paused) ?? defaults.paused
+        pauseInLowPowerMode = try values.decodeIfPresent(Bool.self, forKey: .pauseInLowPowerMode)
+            ?? defaults.pauseInLowPowerMode
+        pauseOnBattery = try values.decodeIfPresent(Bool.self, forKey: .pauseOnBattery) ?? defaults.pauseOnBattery
+    }
+}
+
+/// The videos the extension offers besides the one the app plays: clones the app keeps in the LockScreen folder.
+struct WallpaperCatalog: Codable, Equatable, Sendable {
+    struct Item: Codable, Equatable, Sendable {
+        let file: String
+        let title: String
+    }
+
+    let items: [Item]
+}
+
+/// A video the app lists in catalog.json, with the title the extension shows for it.
+struct CatalogSource: Sendable {
+    let source: URL
+    let title: String
+}
+
+/// What a sync could not do without failing as a whole.
+struct SyncReport: Sendable, Equatable {
+    /// Catalog sources whose clone failed; sources skipped on purpose (another volume, no cloning, an unsupported
+    /// type, a missing file) are not counted.
+    let failedCatalogItems: Int
 }
 
 enum LockScreenFilesError: Error, Equatable {
@@ -12,6 +87,8 @@ enum LockScreenFilesError: Error, Equatable {
     case unsupportedType(String)
     /// The LockScreen volume has less than the source's size plus the safety margin free.
     case insufficientSpace(neededBytes: Int64)
+    /// The LockScreen folder is a symlink, sits under one, or is not a directory.
+    case folderIsNotADirectory
 }
 
 /// The LockScreen folder contract between the app (writer) and the wallpaper extension (reader).
@@ -19,6 +96,17 @@ enum LockScreenFilesError: Error, Equatable {
 enum LockScreenFiles {
     static let stateName = "state.json"
     static let maxStateBytes = 4 * 1024
+    static let catalogName = "catalog.json"
+    static let maxCatalogBytes = 256 * 1024
+    static let maxCatalogItems = 200
+    static let maxTitleLength = 80
+    static let maxTitleScalars = 160
+    /// A longer cluster is a stack of combining marks, not a letter anyone reads.
+    static let maxScalarsPerCharacter = 8
+    /// Invisible or reorderable text (bidi overrides, zero-width marks) that could make a title lie about its file.
+    private static let hiddenCategories: Set<Unicode.GeneralCategory> = [
+        .control, .format, .lineSeparator, .paragraphSeparator, .privateUse, .surrogate, .unassigned,
+    ]
     /// Same types as LibraryNaming.videoExtensions; the extension plays nothing else.
     static let videoExtensions: Set<String> = ["mp4", "mov", "m4v"]
     /// Free space kept on the volume after a copy, so the Lock Screen video never fills the disk.
@@ -48,10 +136,10 @@ enum LockScreenFiles {
     }
 
     /// Files the app created that `keep` no longer needs (old videos, interrupted copies); anything else stays.
-    static func staleFiles(in names: [String], keeping keep: String?) -> [String] {
+    static func staleFiles(in names: [String], keeping keep: Set<String>) -> [String] {
         names.filter { name in
             let video = name.hasPrefix(partialPrefix) ? String(name.dropFirst(partialPrefix.count)) : name
-            return name != keep && isVideoName(video)
+            return !keep.contains(name) && isVideoName(video)
         }
     }
 
@@ -62,9 +150,7 @@ enum LockScreenFiles {
     // MARK: state.json
 
     static func encode(_ state: LockScreenState) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        return try encoder.encode(state)
+        try sortedJSON(state)
     }
 
     /// nil when the data is over 4 KB, is not a state, or names a file the app would never write.
@@ -75,77 +161,189 @@ enum LockScreenFiles {
         return state
     }
 
-    /// Opens without following a symlink and without blocking on a FIFO, and reads only a regular file of at most
-    /// 4 KB. nil when absent or invalid.
+    /// nil when absent or invalid; see `readSmallFile`.
     static func readState(in folder: URL) -> LockScreenState? {
-        let fd = open(folder.appendingPathComponent(stateName).path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
-        guard fd >= 0 else { return nil }
-        defer { close(fd) }
-        var info = stat()
-        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= maxStateBytes else { return nil }
-        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
-        return (try? handle.read(upToCount: maxStateBytes + 1)).flatMap(decode)
+        readSmallFile(named: stateName, in: folder, maxBytes: maxStateBytes).flatMap(decode)
     }
 
-    /// The state's video, only if it resolves (symlinks included) to a readable regular file directly inside `folder`.
+    /// The state's video; see `videoURL(named:in:)`.
     static func videoURL(for state: LockScreenState, in folder: URL) -> URL? {
-        guard isVideoName(state.file) else { return nil }
+        videoURL(named: state.file, in: folder)
+    }
+
+    /// The video, only if it is a readable regular file directly inside `folder`. A symlink is refused: the app never
+    /// makes one, so it could only point somewhere the app did not choose.
+    static func videoURL(named file: String, in folder: URL) -> URL? {
+        guard isVideoName(file) else { return nil }
         let root = folder.resolvingSymlinksInPath()
-        let url = root.appendingPathComponent(state.file).resolvingSymlinksInPath()
-        guard url.deletingLastPathComponent().path == root.path,
-              (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true,
+        let url = root.appendingPathComponent(file)
+        guard let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey]),
+              values.isSymbolicLink == false, values.isRegularFile == true,
+              url.deletingLastPathComponent().path == root.path,
               FileManager.default.isReadableFile(atPath: url.path) else { return nil }
         return url
     }
 
+    // MARK: catalog.json
+
+    static func encodeCatalog(_ catalog: WallpaperCatalog) throws -> Data {
+        try sortedJSON(catalog)
+    }
+
+    /// nil when the data is over 256 KB or is not a catalog. Keeps the first 200 distinct names the app would write,
+    /// in order, with titles safe to show.
+    static func decodeCatalog(_ data: Data) -> WallpaperCatalog? {
+        guard data.count <= maxCatalogBytes,
+              let catalog = try? JSONDecoder().decode(WallpaperCatalog.self, from: data) else { return nil }
+        var files = Set<String>()
+        let items = catalog.items.filter { isVideoName($0.file) && files.insert($0.file).inserted }
+        return WallpaperCatalog(items: items.prefix(maxCatalogItems).map {
+            WallpaperCatalog.Item(file: $0.file, title: displayTitle($0.title, file: $0.file))
+        })
+    }
+
+    /// nil when absent or invalid; see `readSmallFile`.
+    static func readCatalog(in folder: URL) -> WallpaperCatalog? {
+        readSmallFile(named: catalogName, in: folder, maxBytes: maxCatalogBytes).flatMap(decodeCatalog)
+    }
+
+    /// Without hidden characters, line breaks or overlong clusters, trimmed, at most 80 characters and 160 scalars;
+    /// the file's stem when that is empty.
+    private static func displayTitle(_ title: String, file: String) -> String {
+        let visible = String(title.unicodeScalars.filter {
+            !hiddenCategories.contains($0.properties.generalCategory) && !CharacterSet.newlines.contains($0)
+        }).filter { $0.unicodeScalars.count <= maxScalarsPerCharacter }
+        var scalars = 0
+        let capped = String(visible.trimmingCharacters(in: .whitespaces).prefix(maxTitleLength).prefix {
+            scalars += $0.unicodeScalars.count
+            return scalars <= maxTitleScalars
+        })
+        return capped.isEmpty ? (file as NSString).deletingPathExtension : capped
+    }
+
+    /// Opens without following a symlink and without blocking on a FIFO, and reads only a regular file of at most
+    /// `maxBytes`.
+    private static func readSmallFile(named name: String, in folder: URL, maxBytes: Int) -> Data? {
+        let fd = open(folder.appendingPathComponent(name).path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= maxBytes else { return nil }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+        return try? handle.read(upToCount: maxBytes + 1)
+    }
+
+    private static func sortedJSON(_ value: some Encodable) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(value)
+    }
+
     // MARK: Writing (app side)
 
-    /// Puts `source` (symlinks resolved) in `folder`, points state.json at it, then removes what it replaced.
-    /// An instant clone when both are on the same APFS volume, a full copy otherwise.
-    static func mirror(_ source: URL, into folder: URL, now: Date = Date()) throws {
-        let source = source.resolvingSymlinksInPath()
-        guard let name = videoName(forSourcePath: source.path) else {
-            throw LockScreenFilesError.unsupportedType(source.pathExtension.lowercased())
+    /// Puts `current` in `folder` and writes state.json, then clones the catalog's sources (symlinks resolved) and
+    /// writes catalog.json (removed when `catalog` is nil), then removes what they replaced. A file lands before the
+    /// JSON that names it, and a failed catalog clone can never hold back state.json. `current` is an instant clone
+    /// on the same APFS volume and a full copy otherwise; catalog sources are only ever cloned.
+    @discardableResult
+    static func sync(current: URL, flags: PlaybackFlags, catalog: [CatalogSource]?, into folder: URL,
+                     now: Date = Date()) throws -> SyncReport {
+        let current = current.resolvingSymlinksInPath()
+        guard let name = videoName(forSourcePath: current.path) else {
+            throw LockScreenFilesError.unsupportedType(current.pathExtension.lowercased())
         }
         let fm = FileManager.default
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
-        let copied = try copyIfChanged(source, to: folder.appendingPathComponent(name))
-        let stateURL = folder.appendingPathComponent(stateName)
-        let previous = copied ? nil : readState(in: folder).flatMap { $0.file == name ? $0 : nil }
-        let data = try encode(previous ?? LockScreenState(file: name, updated: Int(now.timeIntervalSince1970)))
-        // The same state keeps its `updated`, so the extension does not restart the same video; it is rewritten
-        // only when its bytes differ (an older format with extra keys).
-        if previous == nil || (try? Data(contentsOf: stateURL)) != data {
-            try data.write(to: stateURL, options: .atomic)
+        guard isRealDirectory(folder) else { throw LockScreenFilesError.folderIsNotADirectory }
+        let copied = try copyIfChanged(current, to: folder.appendingPathComponent(name))
+        try writeState(file: name, flags: flags, copied: copied, in: folder, now: now)
+        let clones = catalog.map { cloneCatalog($0, into: folder) }
+        if let clones {
+            try writeIfChanged(encodeCatalog(WallpaperCatalog(items: clones.items)), named: catalogName, in: folder)
+        } else {
+            try removeIfPresent(catalogName, in: folder)
         }
-        try removeFiles(staleFiles(in: fm.contentsOfDirectory(atPath: folder.path), keeping: name), in: folder)
+        let keep = Set([name] + (clones?.items ?? []).map(\.file))
+        try removeFiles(staleFiles(in: fm.contentsOfDirectory(atPath: folder.path), keeping: keep), in: folder)
+        return SyncReport(failedCatalogItems: clones?.failed ?? 0)
     }
 
-    /// Removes state.json first (the extension then shows nothing), then every video the app created.
+    /// Removes state.json first (the extension then shows nothing), then catalog.json and every video the app created.
+    /// Does nothing unless `folder` is a real directory, so a symlinked folder never deletes anything elsewhere.
     static func clear(_ folder: URL) throws {
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: folder.path) else { return }
-        let state = folder.appendingPathComponent(stateName)
-        if fm.fileExists(atPath: state.path) { try fm.removeItem(at: state) }
-        try removeFiles(staleFiles(in: fm.contentsOfDirectory(atPath: folder.path), keeping: nil), in: folder)
+        guard isRealDirectory(folder) else { return }
+        try removeIfPresent(stateName, in: folder)
+        try removeIfPresent(catalogName, in: folder)
+        try removeFiles(staleFiles(in: FileManager.default.contentsOfDirectory(atPath: folder.path), keeping: []),
+                        in: folder)
+    }
+
+    /// At most 200 distinct clones, in order; a source that cannot be cloned loses its tile, never the whole sync.
+    private static func cloneCatalog(_ sources: [CatalogSource],
+                                     into folder: URL) -> (items: [WallpaperCatalog.Item], failed: Int) {
+        // shortcut: no tiles on a volume without cloning (HFS+), where each would be a full copy; upgrade if asked.
+        guard (try? folder.resourceValues(forKeys: [.volumeSupportsFileCloningKey]))?
+            .volumeSupportsFileCloning == true else { return ([], 0) }
+        var items: [WallpaperCatalog.Item] = []
+        var files = Set<String>()
+        var failed = 0
+        for entry in sources where items.count < maxCatalogItems {
+            do {
+                guard let file = try cloneCatalogSource(entry.source, into: folder),
+                      files.insert(file).inserted else { continue }
+                items.append(WallpaperCatalog.Item(file: file, title: entry.title))
+            } catch {
+                // copyIfChanged already removed the partial file; the caller reports the count.
+                failed += 1
+            }
+        }
+        return (items, failed)
+    }
+
+    /// The clone's name; nil when the source is not a supported regular file on the folder's volume. Throws when
+    /// the copy fails.
+    private static func cloneCatalogSource(_ source: URL, into folder: URL) throws -> String? {
+        let source = source.resolvingSymlinksInPath()
+        // shortcut: a video on another volume gets no tile (no multi-GB copies), upgrade if users ask for those tiles.
+        guard let name = videoName(forSourcePath: source.path),
+              (try? source.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true,
+              isSameVolume(source, folder) else { return nil }
+        _ = try copyIfChanged(source, to: folder.appendingPathComponent(name))
+        return name
+    }
+
+    /// The same file keeps its `updated`, so the extension does not restart the video; the flags always follow the app.
+    private static func writeState(file: String, flags: PlaybackFlags, copied: Bool, in folder: URL, now: Date) throws {
+        let kept = copied ? nil : readState(in: folder).flatMap { $0.file == file ? $0.updated : nil }
+        let state = LockScreenState(file: file, updated: kept ?? Int(now.timeIntervalSince1970), flags: flags)
+        try writeIfChanged(encode(state), named: stateName, in: folder)
+    }
+
+    /// Atomic, and only when the bytes differ (a larger file differs anyway), so the extension wakes only on a change.
+    private static func writeIfChanged(_ data: Data, named name: String, in folder: URL) throws {
+        guard readSmallFile(named: name, in: folder, maxBytes: data.count) != data else { return }
+        try data.write(to: folder.appendingPathComponent(name), options: .atomic)
     }
 
     /// Copies to a hidden partial file and renames it into place, so a reader never opens half a video.
     /// False when `dest` already holds this file (same size and modification date).
     private static func copyIfChanged(_ source: URL, to dest: URL) throws -> Bool {
+        let fm = FileManager.default
+        // A directory or symlink under our name is never a copy we made; it goes before it can pass as this file.
+        if let type = entryType(dest), type != S_IFREG { try fm.removeItem(at: dest) }
         guard !isSameFile(source, dest) else { return false }
         let folder = dest.deletingLastPathComponent()
-        let fm = FileManager.default
         let partial = folder.appendingPathComponent(partialPrefix + dest.lastPathComponent)
-        // Before the space check, so a crashed multi-GB partial is not counted as used space.
-        if fm.fileExists(atPath: partial.path) { try fm.removeItem(at: partial) }
+        // Before the space check, so a crashed multi-GB partial is not counted as used space. lstat, so a planted
+        // dangling symlink (which fileExists misses) goes too.
+        if entryType(partial) != nil { try fm.removeItem(at: partial) }
         // On one volume copyItem clones (APFS) and needs almost no space.
         if !isSameVolume(source, folder) { try requireFreeSpace(for: source, in: folder) }
         do {
             try fm.copyItem(at: source, to: partial)
             guard rename(partial.path, dest.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         } catch {
-            // The copy error is the one reported; a partial that survives this is removed by the next mirror or clear.
+            // The copy error is the one reported; a partial that survives this is removed by the next sync or clear.
             try? fm.removeItem(at: partial)
             throw error
         }
@@ -169,10 +367,27 @@ enum LockScreenFiles {
         return x.isEqual(y)
     }
 
+    /// The entry's own type (S_IFREG, S_IFDIR, S_IFLNK, …), a symlink not followed; nil when there is none.
+    private static func entryType(_ url: URL) -> mode_t? {
+        var info = stat()
+        return lstat(url.path, &info) == 0 ? info.st_mode & S_IFMT : nil
+    }
+
+    /// A directory that is no symlink and has none above it, so nothing written or removed in it lands elsewhere.
+    private static func isRealDirectory(_ folder: URL) -> Bool {
+        entryType(folder) == S_IFDIR
+            && folder.resolvingSymlinksInPath().standardizedFileURL.path == folder.standardizedFileURL.path
+    }
+
     private static func isSameFile(_ a: URL, _ b: URL) -> Bool {
         let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
         guard let x = try? a.resourceValues(forKeys: keys), let y = try? b.resourceValues(forKeys: keys) else { return false }
         return x.fileSize == y.fileSize && x.contentModificationDate == y.contentModificationDate
+    }
+
+    private static func removeIfPresent(_ name: String, in folder: URL) throws {
+        let url = folder.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
     }
 
     private static func removeFiles(_ names: [String], in folder: URL) throws {

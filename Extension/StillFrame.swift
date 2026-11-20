@@ -10,11 +10,23 @@ import CoreVideo
 /// The largest still decoded (4K UHD): an 8K video's first frame would otherwise hold ~130 MB per copy.
 let maxStillSize = CGSize(width: 3_840, height: 2_160)
 
-/// The video's first frame scaled to fit `maxSize` (aspect kept), or nil (logged) when it can't be read.
-func firstFrame(of url: URL, maxSize: CGSize = maxStillSize) async -> CGImage? {
-    let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+/// The video's first frame scaled to fit `maxSize` (aspect kept), or nil (logged) when it can't be read, or when
+/// `timeout` passes first (the generation is cancelled).
+func firstFrame(of url: URL, maxSize: CGSize = maxStillSize, timeout: Duration? = nil) async -> CGImage? {
+    let asset = AVURLAsset(url: url, options: [AVURLAssetReferenceRestrictionsKey:
+                                                   AVAssetReferenceRestrictions.forbidAll.rawValue])
+    let generator = AVAssetImageGenerator(asset: asset)
     generator.appliesPreferredTrackTransform = true
     generator.maximumSize = maxSize
+    // Not Sendable, but cancelAllCGImageGeneration exists to be called while a generation runs elsewhere.
+    nonisolated(unsafe) let cancellable = generator
+    let timer = timeout.map { limit in
+        Task {
+            try await Task.sleep(for: limit)
+            cancellable.cancelAllCGImageGeneration()
+        }
+    }
+    defer { timer?.cancel() }
     do {
         return try await generator.image(at: .zero).image
     } catch {

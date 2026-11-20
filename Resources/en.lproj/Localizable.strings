@@ -5,6 +5,7 @@
 "menu.library" = "Library…";
 "menu.pause" = "Pause";
 "menu.resume" = "Resume";
+"menu.restartAgent" = "Restart Wallpaper Agent";
 "menu.settings" = "Settings…";
 "menu.quit" = "Quit Glowdrop";
 "menu.close" = "Close Window";
@@ -64,6 +65,11 @@
 "settings.loginError" = "Couldn’t change Open at login: %@";
 "settings.language" = "Language";
 "settings.language.system" = "System";
+"settings.engine" = "Wallpaper engine";
+"settings.engine.window" = "Glowdrop window";
+"settings.engine.system" = "macOS wallpaper";
+"settings.engine.window.footnote" = "Glowdrop draws the video behind your desktop icons while the app is open.";
+"settings.engine.system.footnote" = "macOS plays the video on the desktop and Lock Screen, even after you quit Glowdrop. In Wallpaper Settings, choose Glowdrop (follows this app) or any video for each display. Uses undocumented macOS interfaces and may stop working after a macOS update.";
 "settings.playback" = "Playback";
 "settings.quality" = "Quality";
 "settings.quality.auto" = "Automatic";
@@ -78,8 +84,8 @@
 "settings.lockScreen.show" = "Show on Lock Screen";
 "settings.lockScreen.footnote" = "After turning this on, choose Glowdrop once in System Settings > Wallpaper. It may stop working after a macOS update.";
 "settings.lockScreen.open" = "Open Wallpaper Settings…";
-"settings.lockScreen.error" = "Couldn’t update the Lock Screen video: %@";
-"settings.lockScreen.noSpace" = "Not enough disk space to show this video on the Lock Screen: it needs %@ free.";
+"settings.shared.error" = "Couldn’t update the wallpaper video for macOS: %@";
+"settings.shared.noSpace" = "Not enough disk space to give this video to macOS. %@ must be free.";
 "settings.library" = "Library";
 "settings.libraryFolder" = "Folder";
 "settings.change" = "Change…";

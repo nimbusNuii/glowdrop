@@ -25,7 +25,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APPEX/Contents/MacOS" build
 
 xcrun swiftc -swift-version 6 Sources/PlaybackPolicy.swift Sources/LibraryNaming.swift Sources/LibraryModels.swift \
-    Sources/LibraryScanner.swift Sources/LockScreenFiles.swift Extension/LockScreenPlayback.swift Tests/main.swift \
+    Sources/LibraryScanner.swift Sources/LockScreenFiles.swift Sources/WallpaperAgentHealth.swift Extension/LockScreenPlayback.swift Tests/main.swift \
     -o build/selftest
 ./build/selftest
 
@@ -35,8 +35,8 @@ build_extension() {
     xcrun swiftc -swift-version 6 -parse-as-library -O -target "$1-apple-macos26.0" -module-name "$EXT_NAME" \
         -import-objc-header Extension/Bridging.h \
         -framework ExtensionFoundation -framework AVFoundation -framework CoreMedia -framework QuartzCore \
-        -framework IOSurface -framework ImageIO -framework Security -Xlinker -e -Xlinker _NSExtensionMain \
-        Extension/*.swift Sources/LockScreenFiles.swift -o "$2"
+        -framework IOSurface -framework ImageIO -framework Security -framework IOKit -Xlinker -e -Xlinker _NSExtensionMain \
+        Extension/*.swift Sources/LockScreenFiles.swift Sources/PowerSource.swift -o "$2"
 }
 
 if [[ $MODE == release ]]; then

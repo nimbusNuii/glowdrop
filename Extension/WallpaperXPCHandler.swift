@@ -2,10 +2,19 @@
 // See THIRD_PARTY_LICENSES/phosphene-LICENSE.
 
 import Foundation
+import os
 
 /// WallpaperAgent's calls arrive on XPC threads. Requests are read here (Mirror, value types only)
 /// and the work hops to the main actor in arrival order.
 final class WallpaperXPCHandler: NSObject, WallpaperExtensionXPCProtocol {
+    /// WallpaperAgent's end of this connection: set in `accept` before the connection resumes, cleared when it
+    /// ends. Locked because XPC callbacks read it while the invalidation handler clears it.
+    private let storedAgentProxy = OSAllocatedUnfairLock<(any WallpaperExtensionProxyXPCProtocol)?>(uncheckedState: nil)
+    var agentProxy: (any WallpaperExtensionProxyXPCProtocol)? {
+        get { storedAgentProxy.withLockUnchecked { $0 } }
+        set { storedAgentProxy.withLockUnchecked { $0 = newValue } }
+    }
+
     private func onMain(_ work: @escaping @MainActor @Sendable () -> Void) {
         DispatchQueue.main.async { MainActor.assumeIsolated(work) }
     }
@@ -41,13 +50,14 @@ final class WallpaperXPCHandler: NSObject, WallpaperExtensionXPCProtocol {
         }
     }
 
-    func snapshot(withId _: Any?, reply: @escaping @Sendable (Any?, (any Error)?) -> Void) {
+    func snapshot(withId id: Any?, reply: @escaping @Sendable (Any?, (any Error)?) -> Void) {
         guard runtimeLayoutIsValid else {
             reply(nil, runtimeLayoutError)
             return
         }
+        let key = extractWallpaperUUID(fromID: id)
         Task { @MainActor in
-            let snapshot = await makeSnapshotXPC()
+            let snapshot = await makeSnapshotXPC(for: key)
             wallpaperLog("SNAPSHOT replied \(snapshot == nil ? "nil" : "IOSurface")")
             reply(snapshot, nil)
         }
@@ -63,7 +73,7 @@ final class WallpaperXPCHandler: NSObject, WallpaperExtensionXPCProtocol {
         }
     }
 
-    // MARK: - Choices (one static choice: nothing to do)
+    // MARK: - Choices
 
     func addChoiceRequest(withChoiceRequest _: Any?, onBehalfOfProcess _: Any?, reply: @escaping @Sendable (Any?, (any Error)?) -> Void) {
         reply(nil, nil)
@@ -73,8 +83,12 @@ final class WallpaperXPCHandler: NSObject, WallpaperExtensionXPCProtocol {
         reply(nil)
     }
 
+    /// The acquire that follows a pick carries the choice; this only makes the agent fetch the new stills.
     func selectedChoicesDidChange(for _: Any?, reply: @escaping @Sendable ((any Error)?) -> Void) {
         wallpaperLog("SELECTED CHOICES DID CHANGE")
+        agentProxy?.invalidateSnapshots { error in
+            if let error { wallpaperLog("[Choice] invalidateSnapshots failed:", privateDetail: error.localizedDescription) }
+        }
         reply(nil)
     }
 

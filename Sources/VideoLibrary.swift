@@ -17,6 +17,8 @@ final class VideoLibrary: ObservableObject {
 
     let settings: AppSettings
     let lockScreen = LockScreenSync()
+    /// The user's Pause in the menu; the wallpaper extension follows it.
+    private(set) var isPaused = false
     private let onApply: (URL) -> Void
     private let defaults = UserDefaults.standard
     private let videoPathKey = "videoPath"
@@ -31,9 +33,11 @@ final class VideoLibrary: ObservableObject {
     private var automaticPath: String?
     private var isScanning = false
     private var needsRescan = false
+    /// Until the first scan the gallery is empty, and a catalog sent then would remove every tile.
+    private var hasScanned = false
     private var scanCompletions: [@MainActor () -> Void] = []
     private var qualitySubscription: AnyCancellable?
-    private var lockScreenSubscription: AnyCancellable?
+    private var sharedFolderSubscription: AnyCancellable?
 
     static let bundledRoot = Bundle.main.resourceURL?.appendingPathComponent("Wallpapers", isDirectory: true)
 
@@ -46,14 +50,20 @@ final class VideoLibrary: ObservableObject {
         // @Published emits before storing, so use the value the sink receives.
         qualitySubscription = settings.$quality.dropFirst().sink { [weak self] quality in
             self?.reapplyCurrentVariant(quality, isAutomatic: false)
+            self?.updateSharedFolderSoon()
         }
-        // Not dropFirst: launching with the setting off clears what an earlier run left in the folder.
-        lockScreenSubscription = settings.$lockScreenSync.sink { [weak self] enabled in
-            self?.updateLockScreen(enabled: enabled)
-        }
+        // Not dropFirst: launching with both engines' sharing off clears what an earlier run left in the folder.
+        // @Published emits before storing, so read the stored values on the next main-queue turn.
+        sharedFolderSubscription = Publishers.CombineLatest4(settings.$engine, settings.$lockScreenSync,
+                                                             settings.$pauseInLowPowerMode, settings.$pauseOnBattery)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateSharedFolder() }
         for name in [NSApplication.didChangeScreenParametersNotification, .powerSourceChanged] {
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self.map { $0.reapplyCurrentVariant($0.settings.quality, isAutomatic: true) } }
+                MainActor.assumeIsolated {
+                    self.map { $0.reapplyCurrentVariant($0.settings.quality, isAutomatic: true) }
+                    self?.updateSharedFolderSoon()
+                }
             }
         }
     }
@@ -104,12 +114,14 @@ final class VideoLibrary: ObservableObject {
         categories = result.categories
         defaultItem = result.defaultItem
         missingUserFiles = missing
+        hasScanned = true
         let notice = Self.notice(for: result)
         if notice.isEmpty { dismissedScanNotice = [] }
         scanNotice = notice == dismissedScanNotice ? [] : notice
         let completions = scanCompletions
         scanCompletions = []
         completions.forEach { $0() }
+        updateSharedFolder()
     }
 
     private static func notice(for result: LibraryScanResult) -> [LocalizedMessage] {
@@ -171,9 +183,10 @@ final class VideoLibrary: ObservableObject {
         return true
     }
 
-    private func preferredURL(_ item: LibraryItem, _ quality: QualityPreference) -> URL? {
+    private func preferredURL(_ item: LibraryItem, _ quality: QualityPreference,
+                              onBattery: Bool = PowerSource.isOnBattery()) -> URL? {
         VariantChooser.choose(quality, available: Set(item.variants.keys),
-                              maxPixelWidth: Self.maxScreenPixelWidth(), onBattery: PowerSource.isOnBattery())
+                              maxPixelWidth: Self.maxScreenPixelWidth(), onBattery: onBattery)
             .flatMap { item.variants[$0] }
     }
 
@@ -198,6 +211,7 @@ final class VideoLibrary: ObservableObject {
     func removeUserFile(_ url: URL) {
         userFiles = userFiles.filter { $0 != url }
         persistUserFiles()
+        updateSharedFolder()
     }
 
     private func persistUserFiles() {
@@ -219,20 +233,62 @@ final class VideoLibrary: ObservableObject {
         }
         pendingUserFile = nil
         if missingUserFiles.contains(url) { missingUserFiles = missingUserFiles.subtracting([url]) }
-        updateLockScreen(enabled: settings.lockScreenSync)
+        updateSharedFolder()
     }
 
-    /// Mirrors the file the player confirmed (the chosen variant) for the Lock Screen extension on macOS 26+,
-    /// or clears the folder when the setting is off.
-    private func updateLockScreen(enabled: Bool) {
+    func setPaused(_ paused: Bool) {
+        isPaused = paused
+        updateSharedFolder()
+    }
+
+    /// Gives the wallpaper extension (macOS 26+) the file the player confirmed (the chosen variant): for the desktop
+    /// and Lock Screen with a tile per gallery video (system engine), for the Lock Screen only when that setting is on,
+    /// else clears the folder. Before the first confirmed file it waits for `playbackReady`, and the system engine
+    /// also waits for the first scan.
+    private func updateSharedFolder() {
         guard #available(macOS 26, *) else { return }
-        guard enabled else {
+        let desktop = settings.usesSystemEngine
+        guard desktop || settings.lockScreenSync else {
             lockScreen.clear()
             return
         }
-        guard let path = lastGoodPath else { return }
-        lockScreen.sync(source: URL(fileURLWithPath: path))
+        guard let path = lastGoodPath, hasScanned || !desktop else { return }
+        let flags = PlaybackFlags(desktop: desktop, paused: isPaused, pauseInLowPowerMode: settings.pauseInLowPowerMode,
+                                  pauseOnBattery: settings.pauseOnBattery)
+        lockScreen.sync(current: URL(fileURLWithPath: path), flags: flags, catalog: desktop ? catalogSources() : nil)
     }
+
+    /// @Published emits before storing, so the settings are read on the next main-queue turn.
+    private func updateSharedFolderSoon() {
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated { self?.updateSharedFolder() }
+        }
+    }
+
+    /// The gallery's "All" list: library items in order, then "My Videos" files present at the last scan; each path
+    /// once, symlinks resolved. A video left out still plays through the follow tile.
+    private func catalogSources() -> [CatalogSource] {
+        // shortcut: battery is ignored so a tile's file (and so its System Settings selection) does not change when
+        // unplugging; the follow tile still switches variants; upgrade with extension-side variant switching.
+        // Clones are read without a privacy prompt: no tile for links out of the library or TCC-protected files.
+        let roots = [libraryRoot, Self.bundledRoot].compactMap { $0.map { $0.resolvingSymlinksInPath().path + "/" } }
+        let items = allItems.compactMap { item -> CatalogSource? in
+            guard let url = preferredURL(item, settings.quality, onBattery: false)?.resolvingSymlinksInPath(),
+                  roots.contains(where: url.path.hasPrefix) else { return nil }
+            return CatalogSource(source: url, title: item.title)
+        }
+        let home = FileManager.default.homeDirectoryForCurrentUser.resolvingSymlinksInPath()
+        let protected = Self.protectedFolders.map { home.appendingPathComponent($0).path + "/" }
+        let files = userFiles.filter { !missingUserFiles.contains($0) }.compactMap { file -> CatalogSource? in
+            let url = file.resolvingSymlinksInPath()
+            guard !protected.contains(where: url.path.hasPrefix) else { return nil }
+            return CatalogSource(source: url, title: file.deletingPathExtension().lastPathComponent)
+        }
+        var seen = Set<String>()
+        return (items + files).filter { seen.insert($0.source.path).inserted }
+    }
+
+    private static let protectedFolders = ["Desktop", "Documents", "Downloads", "Library/Mobile Documents"]
 
     /// The player could not open `url` and kept showing the last good file: report it and point current (and
     /// the saved path) back at that file, or at nothing. False when the user should not be interrupted:

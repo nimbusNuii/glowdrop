@@ -4,15 +4,22 @@
 import AppKit
 import CoreGraphics
 
-/// Turns loginwindow lock/unlock, the screen saver and display sleep into `ScreenState` changes.
-/// loginwindow reports the lock before WallpaperAgent updates any surface, so the lock screen starts
-/// playing without waiting for the agent.
+/// Turns loginwindow lock/unlock, the screen saver, display sleep, Low Power Mode, the power source and the
+/// thermal state into `ScreenState` changes. loginwindow reports the lock before WallpaperAgent updates any
+/// surface, so the lock screen starts playing without waiting for the agent.
 @MainActor
 enum SystemEvents {
     static func start(_ store: SurfaceStore) {
-        store.updateScreen { $0.screenLocked = isScreenLockedNow() }
+        PowerSource.startMonitoring()
+        store.updateScreen {
+            $0.screenLocked = isScreenLockedNow()
+            $0.lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
+            $0.onBattery = PowerSource.isOnBattery()
+            $0.thermalHigh = isThermalHigh()
+        }
         let distributed = DistributedNotificationCenter.default()
         let workspace = NSWorkspace.shared.notificationCenter
+        let local = NotificationCenter.default
         let signals: [(NotificationCenter, Notification.Name, @Sendable (inout ScreenState) -> Void)] = [
             (distributed, .init("com.apple.screenIsLocked"), { $0.screenLocked = true }),
             (distributed, .init("com.apple.screenIsUnlocked"), { $0.screenLocked = false }),
@@ -20,6 +27,9 @@ enum SystemEvents {
             (distributed, .init("com.apple.screensaver.didstop"), { $0.screenSaverRunning = false }),
             (workspace, NSWorkspace.screensDidSleepNotification, { $0.displaysAsleep = true }),
             (workspace, NSWorkspace.screensDidWakeNotification, { $0.displaysAsleep = false }),
+            (local, .NSProcessInfoPowerStateDidChange, { $0.lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled }),
+            (local, ProcessInfo.thermalStateDidChangeNotification, { $0.thermalHigh = isThermalHigh() }),
+            (local, .powerSourceChanged, { $0.onBattery = PowerSource.isOnBattery() }),
         ]
         // The observers live as long as the process, so their tokens are not kept.
         for (center, name, change) in signals {
@@ -27,6 +37,10 @@ enum SystemEvents {
                 MainActor.assumeIsolated { store.updateScreen(change) }
             }
         }
+    }
+
+    private nonisolated static func isThermalHigh() -> Bool {
+        [.serious, .critical].contains(ProcessInfo.processInfo.thermalState)
     }
 
     /// The lock state at launch: the agent may start this process for a screen that is already locked.

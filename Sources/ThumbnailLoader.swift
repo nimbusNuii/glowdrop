@@ -49,7 +49,9 @@ final class ThumbnailLoader: ObservableObject {
     }
 
     private static func frame(of url: URL) async -> NSImage? {
-        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        let asset = AVURLAsset(url: url, options: [AVURLAssetReferenceRestrictionsKey:
+                                                       AVAssetReferenceRestrictions.forbidAll.rawValue])
+        let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = frameSize
         guard let result = try? await generator.image(at: CMTime(seconds: 1, preferredTimescale: 600)) else {

@@ -5,6 +5,7 @@
 "menu.library" = "คลังวิดีโอ…";
 "menu.pause" = "หยุดชั่วคราว";
 "menu.resume" = "เล่นต่อ";
+"menu.restartAgent" = "รีสตาร์ต Wallpaper Agent";
 "menu.settings" = "การตั้งค่า…";
 "menu.quit" = "ออกจาก Glowdrop";
 "menu.close" = "ปิดหน้าต่าง";
@@ -64,6 +65,11 @@
 "settings.loginError" = "ตั้งค่าเปิดตอนล็อกอินไม่สำเร็จ: %@";
 "settings.language" = "ภาษา";
 "settings.language.system" = "ตามระบบ";
+"settings.engine" = "ตัวเล่นวอลเปเปอร์";
+"settings.engine.window" = "หน้าต่างของ Glowdrop";
+"settings.engine.system" = "วอลเปเปอร์ของ macOS";
+"settings.engine.window.footnote" = "Glowdrop เล่นวิดีโอไว้หลังไอคอนบนเดสก์ท็อประหว่างที่แอปเปิดอยู่";
+"settings.engine.system.footnote" = "macOS เล่นวิดีโอบนเดสก์ท็อปและหน้าล็อก แม้ปิด Glowdrop ไปแล้ว ในการตั้งค่าวอลเปเปอร์ ให้เลือก Glowdrop (เล่นตามแอปนี้) หรือวิดีโอใดก็ได้สำหรับแต่ละจอ ฟีเจอร์นี้ใช้อินเทอร์เฟซของ macOS ที่ไม่ได้เปิดเผยอย่างเป็นทางการ จึงอาจหยุดทำงานหลังอัปเดต macOS";
 "settings.playback" = "การเล่น";
 "settings.quality" = "ความละเอียด";
 "settings.quality.auto" = "อัตโนมัติ";
@@ -78,8 +84,8 @@
 "settings.lockScreen.show" = "แสดงบนหน้าล็อก";
 "settings.lockScreen.footnote" = "หลังเปิดแล้ว ให้เลือก Glowdrop หนึ่งครั้งใน System Settings > Wallpaper ฟีเจอร์นี้อาจหยุดทำงานหลังอัปเดต macOS";
 "settings.lockScreen.open" = "เปิดการตั้งค่าวอลเปเปอร์…";
-"settings.lockScreen.error" = "อัปเดตวิดีโอหน้าล็อกไม่สำเร็จ: %@";
-"settings.lockScreen.noSpace" = "พื้นที่ดิสก์ไม่พอสำหรับแสดงวิดีโอนี้บนหน้าล็อก ต้องมีพื้นที่ว่าง %@";
+"settings.shared.error" = "อัปเดตวิดีโอวอลเปเปอร์ให้ macOS ไม่สำเร็จ: %@";
+"settings.shared.noSpace" = "พื้นที่ดิสก์ไม่พอสำหรับส่งวิดีโอนี้ให้ macOS ต้องมีพื้นที่ว่าง %@";
 "settings.library" = "คลัง";
 "settings.libraryFolder" = "โฟลเดอร์";
 "settings.change" = "เปลี่ยน…";
