@@ -25,7 +25,8 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APPEX/Contents/MacOS" build
 
 xcrun swiftc -swift-version 6 Sources/PlaybackPolicy.swift Sources/LibraryNaming.swift Sources/LibraryModels.swift Sources/GlowdropLink.swift \
-    Sources/LibraryScanner.swift Sources/LockScreenFiles.swift Sources/WallpaperAgentHealth.swift Extension/LockScreenPlayback.swift Tests/main.swift \
+    Sources/LibraryScanner.swift Sources/LockScreenFiles.swift Sources/WallpaperAgentHealth.swift Extension/LockScreenPlayback.swift \
+    Sources/DesktopCoverage.swift Tests/PlaybackChecks.swift Tests/main.swift \
     -o build/selftest
 ./build/selftest
 

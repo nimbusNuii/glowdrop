@@ -93,6 +93,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !library.applyDefault(unless: failed) { gallery.show() }
     }
 
+    /// The system engine plays on after Glowdrop quits, and nothing would update a covered display's still any more.
+    func applicationWillTerminate(_ notification: Notification) {
+        library.lockScreen.releaseCoveredDisplays()
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         gallery.show()
         return true

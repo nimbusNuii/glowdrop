@@ -24,7 +24,8 @@ It lives in the menu bar, pauses itself when nobody can see the wallpaper, and n
 - **Picks the right size**: with `-4k` and `-2k` versions of a video, Auto quality plays 4K only on a wide
   display while plugged in, 2K otherwise.
 - **Plays like Aerials (macOS 26+, experimental)**: macOS plays your videos on the desktop and the Lock Screen,
-  even after you quit Glowdrop, with a tile per video in System Settings → Wallpaper.
+  even after you quit Glowdrop, with a tile per video in System Settings → Wallpaper, a Shuffle tile, 2K on battery
+  or a warm Mac, and pausing when windows cover the desktop.
 - **Library with categories**: every subfolder of the library folder becomes a category in the gallery.
 - **Easy to add**: drag a video onto the gallery, use "Add Video…", or right-click a video in Finder → Open With → Glowdrop.
 - **Thai and English** interface.
@@ -104,6 +105,11 @@ On macOS 26 or later Glowdrop can hand its videos to macOS, the way Apple's Aeri
 - Every wallpaper in the library gets its own tile in System Settings → Wallpaper, so each display or
   Space can show a different video.
 - The **Glowdrop** tile follows whatever you pick in the Glowdrop app.
+- The **Shuffle** tile (with two or more videos) shows a different video every 5 minutes, 15 minutes, hour or day.
+  Set the interval in Glowdrop's Settings → "Shuffle every". All displays show the same video, and it changes at
+  the end of a loop.
+- With `-4k` and `-2k` versions and Quality on Auto, a video's tile switches to 2K on battery, in Low Power Mode or
+  when the Mac is warm, and back again, at the end of a loop.
 - Right-click any Glowdrop tile for **Add Video…** or **Open Glowdrop Library…**.
 
 Turn it on:
@@ -114,7 +120,8 @@ Turn it on:
    videos for each display.
 
 **Pause** in the menu bar, Low Power Mode, the battery rule and the Reduce Motion setting work with both engines.
-"Pause when windows cover the desktop" works only with the Glowdrop window engine for now.
+"Pause when windows cover the desktop" works with both engines; with the macOS engine it works per display and
+Glowdrop must be running (it reads only window bounds, never titles).
 
 If a wallpaper gets stuck, grey or shows the wrong video, choose **Restart Wallpaper Agent** in the menu bar.
 It does the same as `killall WallpaperAgent`; macOS starts the agent again by itself.

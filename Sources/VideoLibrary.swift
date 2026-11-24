@@ -17,6 +17,7 @@ final class VideoLibrary: ObservableObject {
 
     let settings: AppSettings
     let lockScreen = LockScreenSync()
+    private let coverage = DesktopCoverageMonitor()
     /// The user's Pause in the menu; the wallpaper extension follows it.
     private(set) var isPaused = false
     private let onApply: (URL) -> Void
@@ -56,9 +57,11 @@ final class VideoLibrary: ObservableObject {
         // @Published emits before storing, so read the stored values on the next main-queue turn.
         let sharedSettings = Publishers.CombineLatest4(settings.$engine, settings.$lockScreenSync,
                                                        settings.$pauseInLowPowerMode, settings.$pauseOnBattery)
-        sharedFolderSubscription = Publishers.CombineLatest(sharedSettings, settings.$pauseWithReduceMotion)
+        sharedFolderSubscription = Publishers.CombineLatest4(sharedSettings, settings.$pauseWithReduceMotion,
+                                                             settings.$pauseWhenCovered, settings.$shuffleInterval)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.updateSharedFolder() }
+        coverage.onChange = { [weak self] in self?.coverageChanged() }
         for name in [NSApplication.didChangeScreenParametersNotification, .powerSourceChanged] {
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
@@ -249,15 +252,26 @@ final class VideoLibrary: ObservableObject {
     private func updateSharedFolder() {
         guard #available(macOS 26, *) else { return }
         let desktop = settings.usesSystemEngine
+        coverage.setActive(desktop && settings.pauseWhenCovered)
         guard desktop || settings.lockScreenSync else {
             lockScreen.clear()
             return
         }
         guard let path = lastGoodPath, hasScanned || !desktop else { return }
-        let flags = PlaybackFlags(desktop: desktop, paused: isPaused, pauseInLowPowerMode: settings.pauseInLowPowerMode,
-                                  pauseOnBattery: settings.pauseOnBattery,
-                                  pauseWithReduceMotion: settings.pauseWithReduceMotion)
-        lockScreen.sync(current: URL(fileURLWithPath: path), flags: flags, catalog: desktop ? catalogSources() : nil)
+        lockScreen.sync(current: URL(fileURLWithPath: path), flags: sharedFlags(desktop: desktop),
+                        catalog: desktop ? catalogSources() : nil)
+    }
+
+    private func sharedFlags(desktop: Bool) -> PlaybackFlags {
+        PlaybackFlags(desktop: desktop, paused: isPaused, pauseInLowPowerMode: settings.pauseInLowPowerMode,
+                      pauseOnBattery: settings.pauseOnBattery, pauseWithReduceMotion: settings.pauseWithReduceMotion,
+                      coveredDisplays: coverage.coveredDisplays, shuffleInterval: settings.shuffleInterval)
+    }
+
+    /// Only the covered list changed (every other input runs `updateSharedFolder` itself), so state.json alone is
+    /// rewritten, without listing the catalog again; in full when nothing was synced to build on.
+    private func coverageChanged() {
+        if !lockScreen.syncFlags(sharedFlags(desktop: settings.usesSystemEngine)) { updateSharedFolder() }
     }
 
     /// @Published emits before storing, so the settings are read on the next main-queue turn.
@@ -270,14 +284,17 @@ final class VideoLibrary: ObservableObject {
     /// The gallery's "All" list: library items in order, then "My Videos" files present at the last scan; each path
     /// once, symlinks resolved. A video left out still plays through the follow tile.
     private func catalogSources() -> [CatalogSource] {
-        // shortcut: battery is ignored so a tile's file (and so its System Settings selection) does not change when
-        // unplugging; the follow tile still switches variants; upgrade with extension-side variant switching.
+        // A tile's file is its AC variant, so its System Settings selection does not change when unplugging; the
+        // extension plays the battery variant itself, from the next loop.
         // Clones are read without a privacy prompt: no tile for links out of the library or TCC-protected files.
         let roots = [libraryRoot, Self.bundledRoot].compactMap { $0.map { $0.resolvingSymlinksInPath().path + "/" } }
+        let isInLibrary = { (url: URL) in roots.contains(where: url.path.hasPrefix) }
         let items = allItems.compactMap { item -> CatalogSource? in
             guard let url = preferredURL(item, settings.quality, onBattery: false)?.resolvingSymlinksInPath(),
-                  roots.contains(where: url.path.hasPrefix) else { return nil }
-            return CatalogSource(source: url, title: item.title)
+                  isInLibrary(url) else { return nil }
+            let battery = preferredURL(item, settings.quality, onBattery: true)?.resolvingSymlinksInPath()
+            return CatalogSource(source: url, title: item.title,
+                                 batterySource: battery.flatMap { $0 != url && isInLibrary($0) ? $0 : nil })
         }
         let home = FileManager.default.homeDirectoryForCurrentUser.resolvingSymlinksInPath()
         let protected = Self.protectedFolders.map { home.appendingPathComponent($0).path + "/" }

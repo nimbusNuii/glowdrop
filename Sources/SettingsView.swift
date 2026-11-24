@@ -78,9 +78,22 @@ struct SettingsView: View {
             .labelsHidden()
             footnote(L10n.t(settings.usesSystemEngine ? "settings.engine.system.footnote"
                                                       : "settings.engine.window.footnote"))
-            if settings.usesSystemEngine { wallpaperSettingsControls }
+            if settings.usesSystemEngine {
+                shufflePicker
+                wallpaperSettingsControls
+            }
         } header: {
             Text(verbatim: L10n.t("settings.engine"))
+        }
+    }
+
+    /// How often the Shuffle tile in Wallpaper Settings moves to another video.
+    private var shufflePicker: some View {
+        Picker(L10n.t("settings.shuffle"), selection: $settings.shuffleInterval) {
+            Text(verbatim: L10n.t("settings.shuffle.5min")).tag(300)
+            Text(verbatim: L10n.t("settings.shuffle.15min")).tag(900)
+            Text(verbatim: L10n.t("settings.shuffle.hour")).tag(3_600)
+            Text(verbatim: L10n.t("settings.shuffle.day")).tag(86_400)
         }
     }
 
@@ -97,9 +110,9 @@ struct SettingsView: View {
 
     private var energy: some View {
         Section {
-            // They pause only Glowdrop's windows; macOS decides when its own wallpaper plays.
+            Toggle(L10n.t("settings.pauseCovered"), isOn: $settings.pauseWhenCovered)
+            // It pauses only Glowdrop's windows; macOS decides when its own Lock Screen plays.
             if !settings.usesSystemEngine {
-                Toggle(L10n.t("settings.pauseCovered"), isOn: $settings.pauseWhenCovered)
                 Toggle(L10n.t("settings.pauseLocked"), isOn: $settings.pauseWhenLocked)
             }
             Toggle(L10n.t("settings.pauseLowPower"), isOn: $settings.pauseInLowPowerMode)

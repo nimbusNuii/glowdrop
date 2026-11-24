@@ -16,6 +16,7 @@ enum SystemEvents {
             $0.lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
             $0.onBattery = PowerSource.isOnBattery()
             $0.thermalHigh = isThermalHigh()
+            $0.thermalElevated = isThermalElevated()
             $0.reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         }
         let distributed = DistributedNotificationCenter.default()
@@ -32,7 +33,10 @@ enum SystemEvents {
                 $0.reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
             }),
             (local, .NSProcessInfoPowerStateDidChange, { $0.lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled }),
-            (local, ProcessInfo.thermalStateDidChangeNotification, { $0.thermalHigh = isThermalHigh() }),
+            (local, ProcessInfo.thermalStateDidChangeNotification, {
+                $0.thermalHigh = isThermalHigh()
+                $0.thermalElevated = isThermalElevated()
+            }),
             (local, .powerSourceChanged, { $0.onBattery = PowerSource.isOnBattery() }),
         ]
         // The observers live as long as the process, so their tokens are not kept.
@@ -45,6 +49,10 @@ enum SystemEvents {
 
     private nonisolated static func isThermalHigh() -> Bool {
         [.serious, .critical].contains(ProcessInfo.processInfo.thermalState)
+    }
+
+    private nonisolated static func isThermalElevated() -> Bool {
+        ProcessInfo.processInfo.thermalState != .nominal
     }
 
     /// The lock state at launch: the agent may start this process for a screen that is already locked.

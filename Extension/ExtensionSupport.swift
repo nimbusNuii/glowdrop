@@ -37,7 +37,8 @@ enum WallpaperPaths {
     /// The tile image, inside the extension's own container.
     static let thumbnailURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents/thumbnail.png")
 
-    /// One tile image per catalog video (`<file>.r<updated>.png`), inside the extension's own container.
+    /// One tile image per catalog video (`<file>.r<updated>.png`) and Shuffle's (`shuffle.r<rev>.png`), inside the
+    /// extension's own container.
     static let thumbnailsDir = URL(fileURLWithPath: NSHomeDirectory())
         .appendingPathComponent("Documents/Thumbnails", isDirectory: true)
 }
@@ -45,12 +46,17 @@ enum WallpaperPaths {
 /// Same dark grey as the app's gallery background; shown when there is no video to show.
 let neutralDark = CGColor(gray: 0.07, alpha: 1)
 
-func makeSolidImage(_ color: CGColor, width: Int, height: Int) -> CGImage? {
-    guard let ctx = CGContext(
+/// An sRGB BGRA bitmap context, as the generated images use.
+func makeBitmapContext(width: Int, height: Int) -> CGContext? {
+    CGContext(
         data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
         space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
         bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-    ) else { return nil }
+    )
+}
+
+func makeSolidImage(_ color: CGColor, width: Int, height: Int) -> CGImage? {
+    guard let ctx = makeBitmapContext(width: width, height: height) else { return nil }
     ctx.setFillColor(color)
     ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
     return ctx.makeImage()

@@ -28,20 +28,52 @@ func withoutAnimation(_ changes: () -> Void) {
     CATransaction.flush() // a remote context only sees the tree after flush()
 }
 
+private func makeAsset(_ url: URL) -> AVURLAsset {
+    AVURLAsset(url: url, options: [AVURLAssetReferenceRestrictionsKey: AVAssetReferenceRestrictions.forbidAll.rawValue])
+}
+
+/// The codec of the asset's video track (its first format description's media subtype); nil, logged, when it can't
+/// be read. From the asset, which is Sendable, rather than the track, which is not.
+private func videoCodec(of asset: AVURLAsset) async -> FourCharCode? {
+    do {
+        let track = try await asset.loadTracks(withMediaType: .video).first
+        return try await track?.load(.formatDescriptions).first.map(CMFormatDescriptionGetMediaSubType)
+    } catch {
+        wallpaperLog("[Video] reading the codec failed:", privateDetail: error.localizedDescription)
+        return nil
+    }
+}
+
 @MainActor
 final class SurfacePlayer {
-    private let url: URL
+    /// Another file, played from the next loop on; `track` is nil while it loads.
+    private struct PendingSwitch {
+        let url: URL
+        let asset: AVURLAsset
+        var track: AVAssetTrack?
+        var codec: FourCharCode?
+        /// Called once the player reads `url`.
+        let didSwitch: () -> Void
+        /// Called when, after `didSwitch`, no reader opens `url`: the player would hold its last frame for good.
+        let didFail: () -> Void
+    }
+
+    private(set) var url: URL
     private let layer: AVSampleBufferDisplayLayer
     private let renderer: AVSampleBufferVideoRenderer
     private let timebase: CMTimebase
-    private let asset: AVURLAsset
+    private var asset: AVURLAsset
     private var track: AVAssetTrack?
+    private var codec: FourCharCode?
     private var isLoadingTrack = false
+    private var pendingSwitch: PendingSwitch?
+    /// The `didFail` of the switch swapped in at the last seam, until a reader opens its file.
+    private var unreadSwitchFailure: (() -> Void)?
     private var reader: AVAssetReader?
     private var output: AVAssetReaderTrackOutput?
     /// A pause's flush is in flight; reading starts again only after it, never alongside it.
     private var isFlushing = false
-    private var wantsDecoding = false
+    private(set) var wantsDecoding = false
     private var isStopped = false
     private var ptsOffset = CMTime.zero
     private var lastEnqueuedEnd = CMTime.zero
@@ -58,8 +90,7 @@ final class SurfacePlayer {
         self.layer = layer
         renderer = layer.sampleBufferRenderer
         timebase = timebaseOut
-        asset = AVURLAsset(url: url, options: [AVURLAssetReferenceRestrictionsKey:
-                                                   AVAssetReferenceRestrictions.forbidAll.rawValue])
+        asset = makeAsset(url)
         CMTimebaseSetTime(timebase, time: .zero)
         CMTimebaseSetRate(timebase, rate: 0)
         layer.controlTimebase = timebase
@@ -89,9 +120,61 @@ final class SurfacePlayer {
         }
     }
 
+    /// Plays `newURL` (another clone of this video, or Shuffle's next video) from the next loop on, so the change never
+    /// cuts the picture: its asset, video track and codec load now, and the seam swaps them in once ready, then calls
+    /// `didSwitch`. The file playing now cancels a pending switch, a newer request replaces an older one, and stopping
+    /// drops it. A file that fails to load is logged and the current one plays on; one swapped in that no reader opens
+    /// calls `didFail`. A player that has read nothing yet (it shows the still) takes `newURL` at once.
+    func switchAtLoop(to newURL: URL, didSwitch: @escaping () -> Void, didFail: @escaping () -> Void) {
+        guard !isStopped, newURL != pendingSwitch?.url else { return }
+        guard newURL != url else {
+            pendingSwitch = nil
+            return
+        }
+        guard track != nil || isLoadingTrack else {
+            wallpaperLog("[Video] switching \(url.lastPathComponent) to \(newURL.lastPathComponent) before it plays")
+            url = newURL
+            asset = makeAsset(newURL)
+            pendingSwitch = nil
+            didSwitch()
+            // A decoding player gets here only after its file had no video track; the new file gets its own try.
+            if wantsDecoding { startReading() }
+            return
+        }
+        let newAsset = makeAsset(newURL)
+        pendingSwitch = PendingSwitch(url: newURL, asset: newAsset, didSwitch: didSwitch, didFail: didFail)
+        Task { [weak self] in
+            let newTrack: AVAssetTrack?
+            do {
+                newTrack = try await newAsset.loadTracks(withMediaType: .video).first
+            } catch {
+                wallpaperLog("[Video] loading \(newURL.lastPathComponent) failed:", privateDetail: error.localizedDescription)
+                newTrack = nil
+            }
+            let newCodec: FourCharCode? = if newTrack != nil { await videoCodec(of: newAsset) } else { nil }
+            // Replaced, cancelled or stopped meanwhile, or the player is gone.
+            guard let self, pendingSwitch?.asset === newAsset else { return }
+            guard let newTrack else {
+                wallpaperLog("[Video] no video track in \(newURL.lastPathComponent); \(url.lastPathComponent) plays on")
+                pendingSwitch = nil
+                return
+            }
+            pendingSwitch?.track = newTrack
+            pendingSwitch?.codec = newCodec
+        }
+    }
+
+    /// Drops a pending switch to `target`, whose file was copied again: its asset may read the old copy, and the next
+    /// request for it loads it afresh.
+    func cancelPendingSwitch(to target: URL) {
+        guard pendingSwitch?.url == target else { return }
+        pendingSwitch = nil
+    }
+
     func stop() {
         isStopped = true
         wantsDecoding = false
+        pendingSwitch = nil
         renderer.stopRequestingMediaData()
         reader?.cancelReading()
         withoutAnimation { layer.removeFromSuperlayer() }
@@ -132,7 +215,10 @@ final class SurfacePlayer {
         }
         if !openReader(track, from: position) {
             ptsOffset = now
-            guard position > .zero, openReader(track, from: .zero) else { return }
+            guard position > .zero, openReader(track, from: .zero) else {
+                failUnreadSwitch()
+                return
+            }
         }
         lastEnqueuedEnd = now
         if let first = output?.copyNextSampleBuffer() {
@@ -152,13 +238,37 @@ final class SurfacePlayer {
             } catch {
                 wallpaperLog("[Video] loading \(url.lastPathComponent) failed:", privateDetail: error.localizedDescription)
             }
+            if track != nil { codec = await videoCodec(of: asset) }
             isLoadingTrack = false
             guard track != nil else {
                 wallpaperLog("[Video] no video track in \(url.lastPathComponent)")
+                takePendingSwitchNow()
                 return
             }
             if wantsDecoding { startReading() }
         }
+    }
+
+    /// The file this player started on never loaded, so a switch requested meanwhile has no loop to wait for.
+    private func takePendingSwitchNow() {
+        guard let pendingSwitch, !isStopped else { return }
+        wallpaperLog("[Video] switching \(url.lastPathComponent) to \(pendingSwitch.url.lastPathComponent) before it plays")
+        url = pendingSwitch.url
+        asset = pendingSwitch.asset
+        // nil while it still loads: startReading then loads it from this asset.
+        track = pendingSwitch.track
+        codec = pendingSwitch.codec
+        self.pendingSwitch = nil
+        pendingSwitch.didSwitch()
+        if wantsDecoding { startReading() }
+    }
+
+    /// The file a switch swapped in can't be read: the player would hold its last frame, so its owner replaces it.
+    private func failUnreadSwitch() {
+        guard let didFail = unreadSwitchFailure else { return }
+        unreadSwitchFailure = nil
+        wallpaperLog("[Video] \(url.lastPathComponent) can't be read after the switch; the player is replaced")
+        didFail()
     }
 
     private func openReader(_ track: AVAssetTrack, from position: CMTime) -> Bool {
@@ -176,6 +286,7 @@ final class SurfacePlayer {
             }
             reader = newReader
             output = newOutput
+            unreadSwitchFailure = nil
             return true
         } catch {
             wallpaperLog("[Video] AVAssetReader failed for \(url.lastPathComponent):", privateDetail: error.localizedDescription)
@@ -214,15 +325,40 @@ final class SurfacePlayer {
     }
 
     private func loopToStart() {
-        guard wantsDecoding, !isStopped, let track else { return }
+        guard wantsDecoding, !isStopped, track != nil else { return }
         // A pass that enqueued nothing would loop forever on the main thread.
         guard lastEnqueuedEnd > ptsOffset else {
             wallpaperLog("[Video] \(url.lastPathComponent) gave no frames; holding the last one")
             return
         }
         ptsOffset = lastEnqueuedEnd
-        guard openReader(track, from: .zero) else { return }
+        if swapInLoadedSwitch() {
+            wallpaperLog("[Video] codec changes at the loop; flushing before \(url.lastPathComponent)")
+            // Keeps the frame on screen; once the flush ends, reading starts the new file from its start.
+            pause()
+            return
+        }
+        guard let track, openReader(track, from: .zero) else {
+            failUnreadSwitch()
+            return
+        }
         feed()
+    }
+
+    /// Takes a loaded switch. True when its codec differs from the current one, or either is unknown: the display layer
+    /// takes a new format description of the same codec with its first sample, but is flushed before another codec.
+    private func swapInLoadedSwitch() -> Bool {
+        guard let pendingSwitch, let newTrack = pendingSwitch.track else { return false }
+        wallpaperLog("[Video] switching \(url.lastPathComponent) to \(pendingSwitch.url.lastPathComponent) at the loop")
+        let codecChanges = codec == nil || pendingSwitch.codec != codec
+        url = pendingSwitch.url
+        asset = pendingSwitch.asset
+        track = newTrack
+        codec = pendingSwitch.codec
+        self.pendingSwitch = nil
+        unreadSwitchFailure = pendingSwitch.didFail
+        pendingSwitch.didSwitch()
+        return codecChanges
     }
 
     private func enqueue(_ sample: CMSampleBuffer) {
