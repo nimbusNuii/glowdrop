@@ -1,6 +1,7 @@
 // Portions derived from Phosphene, Copyright (c) 2026 kageroumado, MIT License.
 // See THIRD_PARTY_LICENSES/phosphene-LICENSE.
 
+import AppKit
 import Foundation
 import os
 
@@ -92,7 +93,19 @@ final class WallpaperXPCHandler: NSObject, WallpaperExtensionXPCProtocol {
         reply(nil)
     }
 
-    func invokeContextMenuAction(withMenuItemID _: Any?, groupItemID _: Any?, reply: @escaping @Sendable ((any Error)?) -> Void) {
+    /// A tile menu item (see SettingsProvider) opens its glowdrop:// link in the app, as in Phosphene. Only the ids
+    /// this extension serves open anything.
+    func invokeContextMenuAction(withMenuItemID menuItemID: Any?, groupItemID _: Any?,
+                                 reply: @escaping @Sendable ((any Error)?) -> Void) {
+        guard let link = (menuItemID as? String).flatMap(GlowdropLink.init(rawValue:)) else {
+            wallpaperLog("CONTEXT MENU unknown item ignored:", privateDetail: (menuItemID as? String) ?? "not a string")
+            reply(nil)
+            return
+        }
+        onMain {
+            let opened = NSWorkspace.shared.open(link.url)
+            wallpaperLog("CONTEXT MENU \(link.rawValue) opened=\(opened)")
+        }
         reply(nil)
     }
 

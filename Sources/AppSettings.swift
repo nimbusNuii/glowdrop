@@ -22,6 +22,7 @@ final class AppSettings: ObservableObject {
         static let language = "language", quality = "quality", libraryPath = "libraryPath"
         static let pauseWhenCovered = "pauseWhenCovered", pauseWhenLocked = "pauseWhenLocked"
         static let pauseInLowPowerMode = "pauseInLowPowerMode", pauseOnBattery = "pauseOnBattery"
+        static let pauseWithReduceMotion = "pauseWithReduceMotion"
         static let lockScreenSync = "lockScreenSync", engine = "wallpaperEngine"
     }
 
@@ -44,6 +45,10 @@ final class AppSettings: ObservableObject {
     }
     @Published var pauseOnBattery: Bool {
         didSet { defaults.set(pauseOnBattery, forKey: Key.pauseOnBattery) }
+    }
+    /// Hold a still image while macOS's Reduce Motion is on.
+    @Published var pauseWithReduceMotion: Bool {
+        didSet { defaults.set(pauseWithReduceMotion, forKey: Key.pauseWithReduceMotion) }
     }
     /// Mirror the wallpaper to the Lock Screen extension (macOS 26+). `bool(forKey:)` also reads a
     /// `-lockScreenSync YES` launch argument, which is not saved.
@@ -68,6 +73,7 @@ final class AppSettings: ObservableObject {
         pauseWhenLocked = defaults.object(forKey: Key.pauseWhenLocked) as? Bool ?? true
         pauseInLowPowerMode = defaults.object(forKey: Key.pauseInLowPowerMode) as? Bool ?? true
         pauseOnBattery = defaults.object(forKey: Key.pauseOnBattery) as? Bool ?? false
+        pauseWithReduceMotion = defaults.object(forKey: Key.pauseWithReduceMotion) as? Bool ?? true
         lockScreenSync = defaults.bool(forKey: Key.lockScreenSync)
         engine = defaults.string(forKey: Key.engine).flatMap(WallpaperEngine.init(rawValue:)) ?? .window
         libraryPath = defaults.string(forKey: Key.libraryPath) ?? Self.defaultLibraryPath

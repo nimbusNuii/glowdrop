@@ -39,12 +39,16 @@ struct PlaybackFlags: Codable, Equatable, Sendable {
     let paused: Bool
     let pauseInLowPowerMode: Bool
     let pauseOnBattery: Bool
+    /// Hold a still image while macOS's Reduce Motion is on.
+    let pauseWithReduceMotion: Bool
 
-    init(desktop: Bool = false, paused: Bool = false, pauseInLowPowerMode: Bool = true, pauseOnBattery: Bool = false) {
+    init(desktop: Bool = false, paused: Bool = false, pauseInLowPowerMode: Bool = true, pauseOnBattery: Bool = false,
+         pauseWithReduceMotion: Bool = true) {
         self.desktop = desktop
         self.paused = paused
         self.pauseInLowPowerMode = pauseInLowPowerMode
         self.pauseOnBattery = pauseOnBattery
+        self.pauseWithReduceMotion = pauseWithReduceMotion
     }
 
     /// Every key is optional, so a 0.2.0 state.json (file and updated only) reads with the defaults.
@@ -56,6 +60,8 @@ struct PlaybackFlags: Codable, Equatable, Sendable {
         pauseInLowPowerMode = try values.decodeIfPresent(Bool.self, forKey: .pauseInLowPowerMode)
             ?? defaults.pauseInLowPowerMode
         pauseOnBattery = try values.decodeIfPresent(Bool.self, forKey: .pauseOnBattery) ?? defaults.pauseOnBattery
+        pauseWithReduceMotion = try values.decodeIfPresent(Bool.self, forKey: .pauseWithReduceMotion)
+            ?? defaults.pauseWithReduceMotion
     }
 }
 
@@ -64,6 +70,23 @@ struct WallpaperCatalog: Codable, Equatable, Sendable {
     struct Item: Codable, Equatable, Sendable {
         let file: String
         let title: String
+        /// The clone's modification date in milliseconds since 1970 (a clone keeps its source's date), so a video
+        /// replaced under the same name gets a new tile image and still.
+        let updated: Int
+
+        init(file: String, title: String, updated: Int = 0) {
+            self.file = file
+            self.title = title
+            self.updated = updated
+        }
+
+        /// A 0.3.0 catalog has no `updated`: its items read as revision 0.
+        init(from decoder: any Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            file = try values.decode(String.self, forKey: .file)
+            title = try values.decode(String.self, forKey: .title)
+            updated = try values.decodeIfPresent(Int.self, forKey: .updated) ?? 0
+        }
     }
 
     let items: [Item]
@@ -198,7 +221,7 @@ enum LockScreenFiles {
         var files = Set<String>()
         let items = catalog.items.filter { isVideoName($0.file) && files.insert($0.file).inserted }
         return WallpaperCatalog(items: items.prefix(maxCatalogItems).map {
-            WallpaperCatalog.Item(file: $0.file, title: displayTitle($0.title, file: $0.file))
+            WallpaperCatalog.Item(file: $0.file, title: displayTitle($0.title, file: $0.file), updated: $0.updated)
         })
     }
 
@@ -291,13 +314,23 @@ enum LockScreenFiles {
             do {
                 guard let file = try cloneCatalogSource(entry.source, into: folder),
                       files.insert(file).inserted else { continue }
-                items.append(WallpaperCatalog.Item(file: file, title: entry.title))
+                items.append(WallpaperCatalog.Item(file: file, title: entry.title,
+                                                   updated: revision(of: folder.appendingPathComponent(file))))
             } catch {
                 // copyIfChanged already removed the partial file; the caller reports the count.
                 failed += 1
             }
         }
         return (items, failed)
+    }
+
+    /// The clone's modification date in whole milliseconds since 1970, which it keeps from its source: a source
+    /// replaced under the same name gets a new revision, an untouched one keeps it, even across a crash between the
+    /// clone and catalog.json. 0 when the date can't be read (or is out of range).
+    private static func revision(of clone: URL) -> Int {
+        guard let date = try? clone.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        else { return 0 }
+        return Int(exactly: (date.timeIntervalSince1970 * 1000).rounded(.down)) ?? 0
     }
 
     /// The clone's name; nil when the source is not a supported regular file on the folder's volume. Throws when

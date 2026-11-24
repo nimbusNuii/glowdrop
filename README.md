@@ -19,6 +19,8 @@ It lives in the menu bar, pauses itself when nobody can see the wallpaper, and n
 - **Offline only**: no network code, no account, no analytics. Your videos stay on your Mac.
 - **Light on energy**: pauses when windows cover the desktop, the screen is locked, Low Power Mode is on,
   or (optional) the Mac runs on battery.
+- **Respects Reduce Motion**: shows a still image while macOS's Reduce Motion is on (you can turn this off in
+  Settings).
 - **Picks the right size**: with `-4k` and `-2k` versions of a video, Auto quality plays 4K only on a wide
   display while plugged in, 2K otherwise.
 - **Plays like Aerials (macOS 26+, experimental)**: macOS plays your videos on the desktop and the Lock Screen,
@@ -102,6 +104,7 @@ On macOS 26 or later Glowdrop can hand its videos to macOS, the way Apple's Aeri
 - Every wallpaper in the library gets its own tile in System Settings → Wallpaper, so each display or
   Space can show a different video.
 - The **Glowdrop** tile follows whatever you pick in the Glowdrop app.
+- Right-click any Glowdrop tile for **Add Video…** or **Open Glowdrop Library…**.
 
 Turn it on:
 
@@ -110,8 +113,8 @@ Turn it on:
 3. Click **Open Wallpaper Settings…** and choose **Glowdrop** (follows the app) or one of the Glowdrop
    videos for each display.
 
-**Pause** in the menu bar, Low Power Mode and the battery rule work with both engines. "Pause when windows cover
-the desktop" works only with the Glowdrop window engine for now.
+**Pause** in the menu bar, Low Power Mode, the battery rule and the Reduce Motion setting work with both engines.
+"Pause when windows cover the desktop" works only with the Glowdrop window engine for now.
 
 If a wallpaper gets stuck, grey or shows the wrong video, choose **Restart Wallpaper Agent** in the menu bar.
 It does the same as `killall WallpaperAgent`; macOS starts the agent again by itself.

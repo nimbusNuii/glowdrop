@@ -20,6 +20,7 @@
 "pause.reason.screenLocked" = "ล็อกหน้าจออยู่";
 "pause.reason.lowPowerMode" = "โหมดประหยัดพลังงาน";
 "pause.reason.onBattery" = "ใช้แบตเตอรี่อยู่";
+"pause.reason.reduceMotion" = "เปิด ลดการเคลื่อนไหว อยู่";
 "pause.reason.desktopCovered" = "มีหน้าต่างบังพื้นหลังทั้งหมด";
 
 /* Gallery */
@@ -79,6 +80,7 @@
 "settings.pauseLocked" = "หยุดเมื่อล็อกหน้าจอ";
 "settings.pauseLowPower" = "หยุดในโหมดประหยัดพลังงาน";
 "settings.pauseBattery" = "หยุดเมื่อใช้แบตเตอรี่";
+"settings.pauseReduceMotion" = "แสดงภาพนิ่งเมื่อเปิด ลดการเคลื่อนไหว";
 "settings.offline" = "แอปนี้ทำงานออฟไลน์ ไม่เชื่อมต่ออินเทอร์เน็ต";
 "settings.lockScreen" = "หน้าล็อก (ทดลอง)";
 "settings.lockScreen.show" = "แสดงบนหน้าล็อก";

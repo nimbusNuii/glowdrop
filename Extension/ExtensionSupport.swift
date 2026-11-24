@@ -37,7 +37,7 @@ enum WallpaperPaths {
     /// The tile image, inside the extension's own container.
     static let thumbnailURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents/thumbnail.png")
 
-    /// One tile image per catalog video (`<file>.png`), inside the extension's own container.
+    /// One tile image per catalog video (`<file>.r<updated>.png`), inside the extension's own container.
     static let thumbnailsDir = URL(fileURLWithPath: NSHomeDirectory())
         .appendingPathComponent("Documents/Thumbnails", isDirectory: true)
 }

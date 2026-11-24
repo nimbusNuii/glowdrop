@@ -4,6 +4,25 @@ All notable changes to Glowdrop are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] - 2026-11-20
+
+### Added
+
+- Right-click a Glowdrop tile in System Settings → Wallpaper (macOS 26 or later) for "Add Video…" or
+  "Open Glowdrop Library…"; both open the Glowdrop gallery.
+- Settings → "Show a still image when Reduce Motion is on" (on by default): while macOS's Reduce Motion is on,
+  both engines hold a still image instead of playing.
+
+### Fixed
+
+- A library video re-rendered under the same name now refreshes its tile image in System Settings and the
+  wallpaper that shows it, instead of keeping the old picture.
+
+### Security
+
+- The new `glowdrop://` links accept only `glowdrop://add-video` and `glowdrop://library`; anything else in the
+  link (a path, query, user name or port) makes Glowdrop ignore it, and no link can name a file.
+
 ## [0.3.0] - 2026-11-20
 
 ### Added

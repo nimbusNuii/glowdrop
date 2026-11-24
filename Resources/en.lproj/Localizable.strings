@@ -20,6 +20,7 @@
 "pause.reason.screenLocked" = "Screen is locked";
 "pause.reason.lowPowerMode" = "Low Power Mode is on";
 "pause.reason.onBattery" = "On battery power";
+"pause.reason.reduceMotion" = "Reduce Motion is on";
 "pause.reason.desktopCovered" = "Windows cover the desktop";
 
 /* Gallery */
@@ -79,6 +80,7 @@
 "settings.pauseLocked" = "Pause when the screen is locked";
 "settings.pauseLowPower" = "Pause in Low Power Mode";
 "settings.pauseBattery" = "Pause on battery power";
+"settings.pauseReduceMotion" = "Show a still image when Reduce Motion is on";
 "settings.offline" = "This app works offline and never connects to the internet.";
 "settings.lockScreen" = "Lock Screen (experimental)";
 "settings.lockScreen.show" = "Show on Lock Screen";
