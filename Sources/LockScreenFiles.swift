@@ -41,17 +41,41 @@ struct PlaybackFlags: Codable, Equatable, Sendable {
     let pauseOnBattery: Bool
     /// Hold a still image while macOS's Reduce Motion is on.
     let pauseWithReduceMotion: Bool
+    /// Displays whose desktop windows cover completely; their desktop surfaces hold a still. Empty when the
+    /// "pause when covered" setting is off.
+    let coveredDisplays: [UInt32]
+    /// Seconds between the Shuffle tile's videos: always one of `shuffleIntervals`.
+    let shuffleInterval: Int
+
+    static let shuffleIntervals = [300, 900, 3_600, 86_400]
+    static let defaultShuffleInterval = 900
 
     init(desktop: Bool = false, paused: Bool = false, pauseInLowPowerMode: Bool = true, pauseOnBattery: Bool = false,
-         pauseWithReduceMotion: Bool = true) {
+         pauseWithReduceMotion: Bool = true, coveredDisplays: [UInt32] = [],
+         shuffleInterval: Int = PlaybackFlags.defaultShuffleInterval) {
         self.desktop = desktop
         self.paused = paused
         self.pauseInLowPowerMode = pauseInLowPowerMode
         self.pauseOnBattery = pauseOnBattery
         self.pauseWithReduceMotion = pauseWithReduceMotion
+        self.coveredDisplays = coveredDisplays
+        self.shuffleInterval = Self.validShuffleInterval(shuffleInterval)
     }
 
-    /// Every key is optional, so a 0.2.0 state.json (file and updated only) reads with the defaults.
+    /// `seconds` when it is one of `shuffleIntervals`, else the default.
+    static func validShuffleInterval(_ seconds: Int) -> Int {
+        shuffleIntervals.contains(seconds) ? seconds : defaultShuffleInterval
+    }
+
+    /// These flags with no display covered.
+    var uncovered: PlaybackFlags {
+        PlaybackFlags(desktop: desktop, paused: paused, pauseInLowPowerMode: pauseInLowPowerMode,
+                      pauseOnBattery: pauseOnBattery, pauseWithReduceMotion: pauseWithReduceMotion,
+                      shuffleInterval: shuffleInterval)
+    }
+
+    /// Every key is optional, so a 0.2.0 state.json (file and updated only) reads with the defaults. A 0.4.0 key of
+    /// the wrong JSON type reads as its default rather than losing the whole state.
     init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = PlaybackFlags()
@@ -62,6 +86,10 @@ struct PlaybackFlags: Codable, Equatable, Sendable {
         pauseOnBattery = try values.decodeIfPresent(Bool.self, forKey: .pauseOnBattery) ?? defaults.pauseOnBattery
         pauseWithReduceMotion = try values.decodeIfPresent(Bool.self, forKey: .pauseWithReduceMotion)
             ?? defaults.pauseWithReduceMotion
+        coveredDisplays = (try? values.decodeIfPresent([UInt32].self, forKey: .coveredDisplays))
+            ?? defaults.coveredDisplays
+        shuffleInterval = Self.validShuffleInterval((try? values.decodeIfPresent(Int.self, forKey: .shuffleInterval))
+            ?? defaults.shuffleInterval)
     }
 }
 
@@ -73,19 +101,25 @@ struct WallpaperCatalog: Codable, Equatable, Sendable {
         /// The clone's modification date in milliseconds since 1970 (a clone keeps its source's date), so a video
         /// replaced under the same name gets a new tile image and still.
         let updated: Int
+        /// The clone to play on battery power, in Low Power Mode or while the Mac is warm (the variant Auto quality
+        /// picks on battery); nil when that is `file` itself. `updated` stays `file`'s revision.
+        let batteryFile: String?
 
-        init(file: String, title: String, updated: Int = 0) {
+        init(file: String, title: String, updated: Int = 0, batteryFile: String? = nil) {
             self.file = file
             self.title = title
             self.updated = updated
+            self.batteryFile = batteryFile
         }
 
-        /// A 0.3.0 catalog has no `updated`: its items read as revision 0.
+        /// A 0.3.0 catalog has no `updated`, and no 0.3.x catalog has `batteryFile`: its items read as revision 0
+        /// with no battery clone. A `batteryFile` of the wrong JSON type reads as none, and the item stays.
         init(from decoder: any Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
             file = try values.decode(String.self, forKey: .file)
             title = try values.decode(String.self, forKey: .title)
             updated = try values.decodeIfPresent(Int.self, forKey: .updated) ?? 0
+            batteryFile = try? values.decodeIfPresent(String.self, forKey: .batteryFile)
         }
     }
 
@@ -96,12 +130,20 @@ struct WallpaperCatalog: Codable, Equatable, Sendable {
 struct CatalogSource: Sendable {
     let source: URL
     let title: String
+    /// The variant for battery power, when it is another file than `source`.
+    let batterySource: URL?
+
+    init(source: URL, title: String, batterySource: URL? = nil) {
+        self.source = source
+        self.title = title
+        self.batterySource = batterySource
+    }
 }
 
 /// What a sync could not do without failing as a whole.
 struct SyncReport: Sendable, Equatable {
-    /// Catalog sources whose clone failed; sources skipped on purpose (another volume, no cloning, an unsupported
-    /// type, a missing file) are not counted.
+    /// Catalog sources whose clone failed, each battery variant counted on its own; sources skipped on purpose
+    /// (another volume, no cloning, an unsupported type, a missing file) are not counted.
     let failedCatalogItems: Int
 }
 
@@ -146,8 +188,12 @@ enum LockScreenFiles {
     static func videoName(forSourcePath path: String) -> String? {
         let ext = (path as NSString).pathExtension.lowercased()
         guard videoExtensions.contains(ext) else { return nil }
-        let hex = SHA256.hash(data: Data(path.utf8)).prefix(hashLength / 2).map { String(format: "%02x", $0) }.joined()
-        return "\(videoPrefix)\(hex).\(ext)"
+        return "\(videoPrefix)\(shortHash(path)).\(ext)"
+    }
+
+    /// The first 16 hex digits of SHA-256 over `text`'s UTF-8.
+    static func shortHash(_ text: String) -> String {
+        SHA256.hash(data: Data(text.utf8)).prefix(hashLength / 2).map { String(format: "%02x", $0) }.joined()
     }
 
     /// True only for names `videoName` makes, so "/", ".." and the user's own files never match.
@@ -214,14 +260,15 @@ enum LockScreenFiles {
     }
 
     /// nil when the data is over 256 KB or is not a catalog. Keeps the first 200 distinct names the app would write,
-    /// in order, with titles safe to show.
+    /// in order, with titles safe to show; a battery clone only under a name the app would write.
     static func decodeCatalog(_ data: Data) -> WallpaperCatalog? {
         guard data.count <= maxCatalogBytes,
               let catalog = try? JSONDecoder().decode(WallpaperCatalog.self, from: data) else { return nil }
         var files = Set<String>()
         let items = catalog.items.filter { isVideoName($0.file) && files.insert($0.file).inserted }
         return WallpaperCatalog(items: items.prefix(maxCatalogItems).map {
-            WallpaperCatalog.Item(file: $0.file, title: displayTitle($0.title, file: $0.file), updated: $0.updated)
+            WallpaperCatalog.Item(file: $0.file, title: displayTitle($0.title, file: $0.file), updated: $0.updated,
+                                  batteryFile: $0.batteryFile.flatMap { isVideoName($0) ? $0 : nil })
         })
     }
 
@@ -264,10 +311,10 @@ enum LockScreenFiles {
 
     // MARK: Writing (app side)
 
-    /// Puts `current` in `folder` and writes state.json, then clones the catalog's sources (symlinks resolved) and
-    /// writes catalog.json (removed when `catalog` is nil), then removes what they replaced. A file lands before the
-    /// JSON that names it, and a failed catalog clone can never hold back state.json. `current` is an instant clone
-    /// on the same APFS volume and a full copy otherwise; catalog sources are only ever cloned.
+    /// Puts `current` in `folder` and writes state.json, then clones the catalog's sources and battery variants
+    /// (symlinks resolved) and writes catalog.json (removed when `catalog` is nil), then removes what they replaced. A
+    /// file lands before the JSON that names it, and a failed catalog clone can never hold back state.json. `current`
+    /// is an instant clone on the same APFS volume and a full copy otherwise; catalog sources are only ever cloned.
     @discardableResult
     static func sync(current: URL, flags: PlaybackFlags, catalog: [CatalogSource]?, into folder: URL,
                      now: Date = Date()) throws -> SyncReport {
@@ -286,7 +333,7 @@ enum LockScreenFiles {
         } else {
             try removeIfPresent(catalogName, in: folder)
         }
-        let keep = Set([name] + (clones?.items ?? []).map(\.file))
+        let keep = Set([name] + (clones?.items ?? []).flatMap { [$0.file, $0.batteryFile].compactMap { $0 } })
         try removeFiles(staleFiles(in: fm.contentsOfDirectory(atPath: folder.path), keeping: keep), in: folder)
         return SyncReport(failedCatalogItems: clones?.failed ?? 0)
     }
@@ -301,7 +348,8 @@ enum LockScreenFiles {
                         in: folder)
     }
 
-    /// At most 200 distinct clones, in order; a source that cannot be cloned loses its tile, never the whole sync.
+    /// At most 200 distinct clones, in order; a source that cannot be cloned loses its tile, never the whole sync, and
+    /// a battery variant that cannot be cloned leaves its tile on the main clone alone.
     private static func cloneCatalog(_ sources: [CatalogSource],
                                      into folder: URL) -> (items: [WallpaperCatalog.Item], failed: Int) {
         // shortcut: no tiles on a volume without cloning (HFS+), where each would be a full copy; upgrade if asked.
@@ -314,8 +362,11 @@ enum LockScreenFiles {
             do {
                 guard let file = try cloneCatalogSource(entry.source, into: folder),
                       files.insert(file).inserted else { continue }
+                let battery = Result { try entry.batterySource.flatMap { try cloneCatalogSource($0, into: folder) } }
+                if case .failure = battery { failed += 1 }
                 items.append(WallpaperCatalog.Item(file: file, title: entry.title,
-                                                   updated: revision(of: folder.appendingPathComponent(file))))
+                                                   updated: revision(of: folder.appendingPathComponent(file)),
+                                                   batteryFile: try? battery.get()))
             } catch {
                 // copyIfChanged already removed the partial file; the caller reports the count.
                 failed += 1
@@ -343,6 +394,16 @@ enum LockScreenFiles {
               isSameVolume(source, folder) else { return nil }
         _ = try copyIfChanged(source, to: folder.appendingPathComponent(name))
         return name
+    }
+
+    /// Rewrites state.json with its flags passed through `change`, keeping its file and `updated` so the extension does
+    /// not restart the video. Writes nothing when the folder holds no valid state.json or the flags stay the same.
+    static func updateFlags(in folder: URL, _ change: (PlaybackFlags) -> PlaybackFlags) throws {
+        guard isRealDirectory(folder), let state = readState(in: folder) else { return }
+        let flags = change(state.flags)
+        guard flags != state.flags else { return }
+        try encode(LockScreenState(file: state.file, updated: state.updated, flags: flags))
+            .write(to: folder.appendingPathComponent(stateName), options: .atomic)
     }
 
     /// The same file keeps its `updated`, so the extension does not restart the video; the flags always follow the app.

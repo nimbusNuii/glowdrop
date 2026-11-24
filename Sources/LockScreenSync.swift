@@ -24,25 +24,73 @@ final class LockScreenSync: ObservableObject {
         struct Tile: Equatable, Sendable {
             let path: String
             let title: String
+            let batteryPath: String?
         }
 
         let current: String
         let flags: PlaybackFlags
         let catalog: [Tile]?
+
+        /// The same video and tiles: only the flags can differ.
+        func hasSameFiles(as other: SyncKey) -> Bool {
+            current == other.current && catalog == other.catalog
+        }
     }
 
     func sync(current: URL, flags: PlaybackFlags, catalog: [CatalogSource]?) {
         let key = SyncKey(current: current.path, flags: flags,
-                          catalog: catalog?.map { SyncKey.Tile(path: $0.source.path, title: $0.title) })
+                          catalog: catalog?.map { SyncKey.Tile(path: $0.source.path, title: $0.title,
+                                                               batteryPath: $0.batterySource?.path) })
         guard key != syncedKey else { return }
         let ext = current.pathExtension.lowercased()
         guard LockScreenFiles.videoExtensions.contains(ext) else {
             Self.logger.notice("Lock Screen skips a .\(ext, privacy: .public) file: it plays only mp4, mov and m4v")
             return
         }
+        if syncedKey?.hasSameFiles(as: key) == true {
+            writeFlags(key)
+            return
+        }
         syncedKey = key
         let folder = Self.folder
         run(key) { try LockScreenFiles.sync(current: current, flags: flags, catalog: catalog, into: folder) }
+    }
+
+    /// Only the flags changed since the last request: state.json alone is rewritten, so the caller need not list the
+    /// catalog again. False when there is no request to build on (none yet, or it failed); the caller then syncs.
+    func syncFlags(_ flags: PlaybackFlags) -> Bool {
+        guard let syncedKey else { return false }
+        let key = SyncKey(current: syncedKey.current, flags: flags, catalog: syncedKey.catalog)
+        if key != syncedKey { writeFlags(key) }
+        return true
+    }
+
+    /// The folder's clones are not looked at again; they are checked on the next request that changes a file or tile.
+    private func writeFlags(_ key: SyncKey) {
+        syncedKey = key
+        let flags = key.flags
+        let folder = Self.folder
+        run(key, flagsOnly: true) {
+            try LockScreenFiles.updateFlags(in: folder) { _ in flags }
+            return SyncReport(failedCatalogItems: 0)
+        }
+    }
+
+    /// At quit, on the main thread: empties state.json's covered displays, so a display covered now plays again under
+    /// the system engine with Glowdrop gone; the file, `updated` and the other flags stay. Queued full jobs are skipped,
+    /// and this runs on the serial queue after the job in flight, so no older list can land over it.
+    /// shortcut: quitting waits for a copy in flight (a full copy only for a current video on another volume); make
+    /// the copy cancellable if a slow quit is ever reported.
+    func releaseCoveredDisplays() {
+        latestJob.withLock { $0 += 1 }
+        let folder = Self.folder
+        queue.sync {
+            do {
+                try LockScreenFiles.updateFlags(in: folder) { $0.uncovered }
+            } catch {
+                Self.logger.error("Lock Screen covered displays not released: \(error.localizedDescription, privacy: .private)")
+            }
+        }
     }
 
     /// Removes state.json, catalog.json and the videos the app created; nothing else in the folder is touched.
@@ -55,14 +103,16 @@ final class LockScreenSync: ObservableObject {
         }
     }
 
-    private func run(_ key: SyncKey?, _ work: @escaping @Sendable () throws -> SyncReport) {
+    /// A flags-only job neither skips the full job queued before it, which must still write the state it rewrites, nor
+    /// is skipped: it only rewrites the flags of whatever state.json holds, and a later full job writes its own.
+    private func run(_ key: SyncKey?, flagsOnly: Bool = false, _ work: @escaping @Sendable () throws -> SyncReport) {
         let latestJob = latestJob
-        let job = latestJob.withLock { latest in
+        let job: Int? = flagsOnly ? nil : latestJob.withLock { latest in
             latest += 1
             return latest
         }
         queue.async { [weak self] in
-            guard latestJob.withLock({ $0 }) == job else { return }
+            if let job, latestJob.withLock({ $0 }) != job { return }
             let failure: LocalizedMessage?
             let retry: Bool
             do {
@@ -77,7 +127,7 @@ final class LockScreenSync: ObservableObject {
                 retry = true
                 Self.logger.error("Lock Screen folder update failed: \(error.localizedDescription, privacy: .private)")
             }
-            Task { @MainActor in self?.finish(key, failure: failure, retry: retry) }
+            Task { @MainActor in self?.finish(key, failure: failure, retry: retry, flagsOnly: flagsOnly) }
         }
     }
 
@@ -89,9 +139,11 @@ final class LockScreenSync: ObservableObject {
                                 args: [ByteCountFormatter.string(fromByteCount: needed, countStyle: .file)])
     }
 
-    private func finish(_ key: SyncKey?, failure: LocalizedMessage?, retry: Bool) {
-        lastError = failure
-        // A failed request, or one whose catalog clones failed, is retried the next time it is made.
-        if retry, key == syncedKey { syncedKey = nil }
+    private func finish(_ key: SyncKey?, failure: LocalizedMessage?, retry: Bool, flagsOnly: Bool) {
+        // A flags-only write says nothing about the clones, so its success keeps a full job's error.
+        if failure != nil || !flagsOnly { lastError = failure }
+        // A failed request, or one whose catalog clones failed, is retried the next time it is made; a flags-only
+        // request made on top of it since then counts as the same request.
+        if retry, let key, syncedKey?.hasSameFiles(as: key) == true { syncedKey = nil }
     }
 }

@@ -3,11 +3,16 @@
 
 import CoreGraphics
 import Foundation
+import ImageIO
 
 private let groupID = "glowdrop"
 private let groupName = "Glowdrop"
 private let followDescription = "Plays the wallpaper chosen in the Glowdrop app"
 private let videoDescription = "Glowdrop video wallpaper"
+private let shuffleName = "Shuffle"
+private let shuffleDescription = "A different Glowdrop video at the interval set in the Glowdrop app"
+/// Shuffle's tile image shows this many catalog videos, 2×2.
+private let shuffleCollageItems = 4
 private let thumbnailSize = CGSize(width: 640, height: 360)
 private let catalogThumbnailSize = CGSize(width: 480, height: 270)
 private let thumbnailTimeout: Duration = .seconds(5)
@@ -34,7 +39,7 @@ func buildSettingsViewModelsXPC(attempts: Int = maxSettingsBuilds) async -> AnyO
     return await buildSettingsViewModelsXPC(attempts: attempts - 1)
 }
 
-/// One group, "Glowdrop": the follow tile, then one tile per catalog video. Served to both the desktop and
+/// One group, "Glowdrop": the follow tile, Shuffle, then one tile per catalog video. Served to both the desktop and
 /// screen-saver pickers and remapped onto the private WallpaperSettingsViewModelsXPC.
 @MainActor
 private func buildSettingsViewModelsOnce() async -> AnyObject? {
@@ -78,7 +83,8 @@ private func makeItem(provider: ChoiceProviderID, identifier: String, files: [UR
     )
 }
 
-/// One tile per catalog video whose file is readable, in catalog order.
+/// Shuffle when the catalog lists two videos or more, then one tile per catalog video whose file is readable, in
+/// catalog order.
 @MainActor
 private func catalogItems(provider: ChoiceProviderID) async -> [SettingsItem] {
     let catalog = SurfaceStore.shared.catalog?.items ?? []
@@ -86,14 +92,21 @@ private func catalogItems(provider: ChoiceProviderID) async -> [SettingsItem] {
         LockScreenFiles.videoURL(named: item.file, in: WallpaperPaths.lockScreenDir).map { (item, $0) }
     }
     await makeCatalogThumbnails(videos.map { (item: $0.0, video: $0.1) })
+    let shuffle: URL? = if catalog.count >= 2 { await shuffleThumbnail(for: catalog) } else { nil }
     // Last, so it never removes an image this build has just made, nor one of the catalog the store holds now: a
     // slower build of an older catalog keeps a newer revision's image; its own leftovers go on the next build.
     let current = SurfaceStore.shared.catalog?.items ?? []
-    removeStaleThumbnails(keeping: Set((catalog + current).map { catalogThumbnailURL($0).lastPathComponent }))
-    return videos.enumerated().map { index, entry in
+    let shuffleNames = [catalog, current].filter { $0.count >= 2 }.map { shuffleThumbnailURL($0).lastPathComponent }
+    removeStaleThumbnails(keeping: Set((catalog + current).map { catalogThumbnailURL($0).lastPathComponent }
+        + shuffleNames))
+    let tiles = videos.enumerated().map { index, entry in
         makeItem(provider: provider, identifier: entry.0.file, files: [entry.1], name: entry.0.title,
-                 description: videoDescription, thumbnail: catalogThumbnailURL(entry.0), sortOrder: index + 1)
+                 description: videoDescription, thumbnail: catalogThumbnailURL(entry.0), sortOrder: index + 2)
     }
+    guard let shuffle else { return tiles }
+    // Like the follow tile, it names no file: what it plays changes.
+    return [makeItem(provider: provider, identifier: WallpaperChoice.shuffleID, files: [], name: shuffleName,
+                     description: shuffleDescription, thumbnail: shuffle, sortOrder: 1)] + tiles
 }
 
 /// Off the main actor, at most four at a time.
@@ -128,6 +141,61 @@ private func removeStaleThumbnails(keeping names: Set<String>) {
 /// The revision is in the name, so System Settings, which caches images by URL, loads a replaced video's new one.
 private func catalogThumbnailURL(_ item: WallpaperCatalog.Item) -> URL {
     WallpaperPaths.thumbnailsDir.appendingPathComponent("\(item.file).r\(item.updated).png")
+}
+
+/// `Thumbnails/shuffle.r<rev>.png`, `rev` hashed from the collage's videos' names and revisions, so a new one gets a
+/// new URL.
+private func shuffleThumbnailURL(_ items: [WallpaperCatalog.Item]) -> URL {
+    let names = items.prefix(shuffleCollageItems).map { catalogThumbnailURL($0).lastPathComponent }
+    return WallpaperPaths.thumbnailsDir
+        .appendingPathComponent("shuffle.r\(LockScreenFiles.shortHash(names.joined(separator: "/"))).png")
+}
+
+/// Shuffle's tile image, made when missing: the first four catalog videos' tile images, 2×2, repeated in order when
+/// there are fewer; a video without an image leaves its cell dark. Its URL either way: unwritten, the tile has none.
+/// shortcut: a video whose tile image was missing when the collage was made stays dark in it until one of the four
+/// videos changes; redraw collages with a dark cell if that shows up.
+private func shuffleThumbnail(for items: [WallpaperCatalog.Item]) async -> URL {
+    let target = shuffleThumbnailURL(items)
+    guard !FileManager.default.fileExists(atPath: target.path) else { return target }
+    // Downscaled on decode, so an oversized image planted under a tile image's name is never decoded whole.
+    let options: [CFString: Any] = [
+        kCGImageSourceThumbnailMaxPixelSize: Int(catalogThumbnailSize.width),
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+    ]
+    let images = items.prefix(shuffleCollageItems).map { item -> CGImage? in
+        CGImageSourceCreateWithURL(catalogThumbnailURL(item) as CFURL, nil)
+            .flatMap { CGImageSourceCreateThumbnailAtIndex($0, 0, options as CFDictionary) }
+    }
+    guard let image = makeCollage(images), writePNG(image, to: target) else {
+        wallpaperLog("[Settings] shuffle thumbnail not written; the tile has no image")
+        return target
+    }
+    return target
+}
+
+/// `images` in a 2×2 grid the size of a catalog tile image, each filling its cell (cropped to its aspect).
+private func makeCollage(_ images: [CGImage?]) -> CGImage? {
+    let size = catalogThumbnailSize
+    guard !images.isEmpty,
+          let ctx = makeBitmapContext(width: Int(size.width), height: Int(size.height)) else { return nil }
+    ctx.setFillColor(neutralDark)
+    ctx.fill(CGRect(origin: .zero, size: size))
+    let cell = CGSize(width: size.width / 2, height: size.height / 2)
+    for index in 0..<shuffleCollageItems {
+        guard let image = images[index % images.count] else { continue }
+        // Row 0 on top: CoreGraphics counts y from the bottom.
+        let frame = CGRect(x: CGFloat(index % 2) * cell.width, y: CGFloat(1 - index / 2) * cell.height,
+                           width: cell.width, height: cell.height)
+        let scale = max(cell.width / CGFloat(image.width), cell.height / CGFloat(image.height))
+        let drawn = CGSize(width: CGFloat(image.width) * scale, height: CGFloat(image.height) * scale)
+        ctx.saveGState()
+        ctx.clip(to: frame)
+        ctx.draw(image, in: CGRect(x: frame.midX - drawn.width / 2, y: frame.midY - drawn.height / 2,
+                                   width: drawn.width, height: drawn.height))
+        ctx.restoreGState()
+    }
+    return ctx.makeImage()
 }
 
 /// `Thumbnails/<file>.r<updated>.png`: the video's first frame, made again only when missing or not stamped with the

@@ -4,6 +4,32 @@ All notable changes to Glowdrop are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-11-24
+
+### Added
+
+- With the macOS wallpaper engine, "Pause when windows cover the desktop" now works per display. Glowdrop checks
+  window bounds only (never titles or owners), every 2 seconds and on Space or app changes. A full-screen app on a
+  display with a camera housing counts as covering. Glowdrop must be running for this. When Glowdrop quits, covered
+  displays resume playing.
+- A **Shuffle** tile in System Settings → Wallpaper (shown when the library has two or more videos). It shows a
+  different library video every 5 minutes, 15 minutes, hour or day (Settings → "Shuffle every"). All displays show the
+  same video, and it changes at the end of a loop.
+- Per-video tiles switch to the 2K copy on battery, in Low Power Mode, or when the Mac is warm (thermal state fair or
+  worse), and back again. The switch happens at the end of a loop with no black frame. This applies only when Quality
+  is Auto and the video has both 2K and 4K files.
+- CI on GitHub Actions: build and selftests on every pull request.
+
+### Changed
+
+- The "Pause when windows cover the desktop" toggle now also shows under the macOS wallpaper engine.
+
+### Security
+
+- The coverage check reads only window bounds, layer and alpha.
+- `state.json` and `catalog.json` gain `coveredDisplays`, `shuffleInterval` and `batteryFile`. All are validated: an
+  unknown interval falls back to 15 minutes, and an invalid file name is dropped.
+
 ## [0.3.1] - 2026-11-20
 
 ### Added

@@ -70,7 +70,12 @@
 "settings.engine.window" = "Glowdrop window";
 "settings.engine.system" = "macOS wallpaper";
 "settings.engine.window.footnote" = "Glowdrop draws the video behind your desktop icons while the app is open.";
-"settings.engine.system.footnote" = "macOS plays the video on the desktop and Lock Screen, even after you quit Glowdrop. In Wallpaper Settings, choose Glowdrop (follows this app) or any video for each display. Uses undocumented macOS interfaces and may stop working after a macOS update.";
+"settings.engine.system.footnote" = "macOS plays the video on the desktop and Lock Screen, even after you quit Glowdrop. In Wallpaper Settings, choose Glowdrop (follows this app), Shuffle or any video for each display. Uses undocumented macOS interfaces and may stop working after a macOS update.";
+"settings.shuffle" = "Shuffle every";
+"settings.shuffle.5min" = "5 minutes";
+"settings.shuffle.15min" = "15 minutes";
+"settings.shuffle.hour" = "Hour";
+"settings.shuffle.day" = "Day";
 "settings.playback" = "Playback";
 "settings.quality" = "Quality";
 "settings.quality.auto" = "Automatic";

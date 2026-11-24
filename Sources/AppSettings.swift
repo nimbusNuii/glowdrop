@@ -22,7 +22,7 @@ final class AppSettings: ObservableObject {
         static let language = "language", quality = "quality", libraryPath = "libraryPath"
         static let pauseWhenCovered = "pauseWhenCovered", pauseWhenLocked = "pauseWhenLocked"
         static let pauseInLowPowerMode = "pauseInLowPowerMode", pauseOnBattery = "pauseOnBattery"
-        static let pauseWithReduceMotion = "pauseWithReduceMotion"
+        static let pauseWithReduceMotion = "pauseWithReduceMotion", shuffleInterval = "shuffleInterval"
         static let lockScreenSync = "lockScreenSync", engine = "wallpaperEngine"
     }
 
@@ -58,6 +58,10 @@ final class AppSettings: ObservableObject {
     @Published var engine: WallpaperEngine {
         didSet { defaults.set(engine.rawValue, forKey: Key.engine) }
     }
+    /// Seconds between the Shuffle tile's videos (system engine): one of `PlaybackFlags.shuffleIntervals`.
+    @Published var shuffleInterval: Int {
+        didSet { defaults.set(shuffleInterval, forKey: Key.shuffleInterval) }
+    }
     /// Validated by `VideoLibrary.changeRoot(to:)` before it is set.
     @Published var libraryPath: String {
         didSet { defaults.set(libraryPath, forKey: Key.libraryPath) }
@@ -76,6 +80,8 @@ final class AppSettings: ObservableObject {
         pauseWithReduceMotion = defaults.object(forKey: Key.pauseWithReduceMotion) as? Bool ?? true
         lockScreenSync = defaults.bool(forKey: Key.lockScreenSync)
         engine = defaults.string(forKey: Key.engine).flatMap(WallpaperEngine.init(rawValue:)) ?? .window
+        // A missing key reads as 0, which is not an interval either.
+        shuffleInterval = PlaybackFlags.validShuffleInterval(defaults.integer(forKey: Key.shuffleInterval))
         libraryPath = defaults.string(forKey: Key.libraryPath) ?? Self.defaultLibraryPath
         L10n.use(language)
     }

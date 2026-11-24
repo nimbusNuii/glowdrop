@@ -263,8 +263,9 @@ do {
     precondition(LockScreenFiles.decode(flaggedData) == flagged)
     // One flat object, the shape 0.2.0 readers and the extension expect.
     let flaggedKeys = Set((try! JSONSerialization.jsonObject(with: flaggedData) as! [String: Any]).keys)
-    precondition(flaggedKeys == ["desktop", "file", "pauseInLowPowerMode", "pauseOnBattery", "pauseWithReduceMotion",
-                                 "paused", "updated"])
+    precondition(flaggedKeys == ["coveredDisplays", "desktop", "file", "pauseInLowPowerMode", "pauseOnBattery",
+                                 "pauseWithReduceMotion", "paused", "shuffleInterval", "updated"])
+    checkNewStateKeys(file: sunset)
     let hostileStates = [
         #"{"file": "../../.ssh/id_rsa", "updated": 1}"#,
         #"{"file": "current.mp4", "updated": 1}"#,
@@ -290,6 +291,16 @@ do {
     let revisions = LockScreenFiles.decodeCatalog(
         Data(#"{"items":[{"file":"\#(a)","title":"A"},{"file":"\#(b)","title":"B","updated":7}]}"#.utf8))
     precondition(revisions?.items.map(\.updated) == [0, 7], "\(String(describing: revisions))")
+    // A battery clone round-trips; 0.3.x wrote none (nor does an item without one, so its catalog.json is unchanged),
+    // and a name the app would never write reads as none while its item stays.
+    let battery = WallpaperCatalog(items: [.init(file: a, title: "Sunset", updated: 3, batteryFile: b)])
+    precondition(LockScreenFiles.decodeCatalog(try! LockScreenFiles.encodeCatalog(battery)) == battery)
+    precondition(revisions?.items.map(\.batteryFile) == [nil, nil], "\(String(describing: revisions))")
+    precondition(!String(decoding: try! LockScreenFiles.encodeCatalog(catalog), as: UTF8.self).contains("batteryFile"))
+    for name in ["../\(b)", "/tmp/\(b)", "video-bbbbbbbbbbbbbbbb.txt", "video-bbbbbbbbbbbbbbbb.m3u8", "state.json", ""] {
+        let json = #"{"items":[{"batteryFile":"\#(name)","file":"\#(a)","title":"A"}]}"#
+        precondition(LockScreenFiles.decodeCatalog(Data(json.utf8))?.items == [.init(file: a, title: "A")], name)
+    }
     let padded = try! LockScreenFiles.encodeCatalog(catalog) + Data(repeating: 0x20, count: LockScreenFiles.maxCatalogBytes)
     for data in [padded, Data("not json".utf8), Data(#"{"files":[]}"#.utf8), Data(#"{"items":[{"file":1}]}"#.utf8)] {
         precondition(LockScreenFiles.decodeCatalog(data) == nil)
@@ -434,14 +445,18 @@ do {
     let src = root.appendingPathComponent("src", isDirectory: true)
     try! fm.createDirectory(at: src.appendingPathComponent("dir.mp4"), withIntermediateDirectories: true)
     try! fm.createDirectory(at: folder, withIntermediateDirectories: true)
-    for (path, body) in ["src/a.mp4": "one", "src/b.mov": "two", "src/c.m4v": "three", "LockScreen/notes.txt": "mine"] {
+    for (path, body) in ["src/a.mp4": "one", "src/b.mov": "two", "src/c.m4v": "three", "src/b-2k.mov": "two small",
+                         "LockScreen/notes.txt": "mine"] {
         precondition(fm.createFile(atPath: root.appendingPathComponent(path).path, contents: Data(body.utf8)))
     }
     let a = src.appendingPathComponent("a.mp4"), b = src.appendingPathComponent("b.mov")
-    let c = src.appendingPathComponent("c.m4v")
+    let c = src.appendingPathComponent("c.m4v"), b2K = src.appendingPathComponent("b-2k.mov")
     guard let nameA = LockScreenFiles.videoName(forSourcePath: a.path),
           let nameB = LockScreenFiles.videoName(forSourcePath: b.path),
-          let nameC = LockScreenFiles.videoName(forSourcePath: c.path) else { preconditionFailure("sources must get names") }
+          let nameC = LockScreenFiles.videoName(forSourcePath: c.path),
+          let nameB2K = LockScreenFiles.videoName(forSourcePath: b2K.path) else {
+        preconditionFailure("sources must get names")
+    }
     let catalogURL = folder.appendingPathComponent(LockScreenFiles.catalogName)
     func sync(_ current: URL, _ flags: PlaybackFlags, _ catalog: [CatalogSource]?, at time: TimeInterval) {
         try! LockScreenFiles.sync(current: current, flags: flags, catalog: catalog, into: folder,
@@ -455,17 +470,23 @@ do {
     func revisions() -> [Int]? { LockScreenFiles.readCatalog(in: folder)?.items.map(\.updated) }
     setDate(b, 1_000_000.5)
     setDate(c, 2_000_000.25)
+    setDate(b2K, 5_000_000)
 
     // Sources are cloned and listed in order; a missing source, a folder posing as a video and a repeat are skipped.
-    // Each clone's `updated` is its modification date (kept from its source) in milliseconds.
-    let tiles = [CatalogSource(source: b, title: "Rain"), CatalogSource(source: src.appendingPathComponent("gone.mp4"), title: "Gone"),
+    // Each clone's `updated` is its modification date (kept from its source) in milliseconds. A battery variant is
+    // cloned beside its tile's clone, whose `updated` stays its own; a missing one leaves the tile without.
+    let tiles = [CatalogSource(source: b, title: "Rain", batterySource: b2K),
+                 CatalogSource(source: src.appendingPathComponent("gone.mp4"), title: "Gone"),
                  CatalogSource(source: src.appendingPathComponent("dir.mp4"), title: "Dir"),
-                 CatalogSource(source: c, title: "Snow"), CatalogSource(source: b, title: "Again")]
+                 CatalogSource(source: c, title: "Snow", batterySource: src.appendingPathComponent("gone-2k.m4v")),
+                 CatalogSource(source: b, title: "Again")]
     sync(a, PlaybackFlags(), tiles, at: 1_000)
-    let listed = WallpaperCatalog(items: [.init(file: nameB, title: "Rain", updated: 1_000_000_500),
-                                          .init(file: nameC, title: "Snow", updated: 2_000_000_250)])
+    let listed = WallpaperCatalog(items: [
+        .init(file: nameB, title: "Rain", updated: 1_000_000_500, batteryFile: nameB2K),
+        .init(file: nameC, title: "Snow", updated: 2_000_000_250),
+    ])
     precondition(LockScreenFiles.readCatalog(in: folder) == listed)
-    precondition(names() == [nameA, nameB, nameC, "catalog.json", "state.json", "notes.txt"], "\(names())")
+    precondition(names() == [nameA, nameB, nameB2K, nameC, "catalog.json", "state.json", "notes.txt"], "\(names())")
     precondition(LockScreenFiles.readState(in: folder) == LockScreenState(file: nameA, updated: 1_000))
     // New flags rewrite state.json but keep `updated`; an unchanged catalog.json (each clone's `updated` too) is not
     // rewritten.
@@ -474,6 +495,7 @@ do {
     sync(a, paused, tiles, at: 2_000)
     precondition(LockScreenFiles.readState(in: folder) == LockScreenState(file: nameA, updated: 1_000, flags: paused))
     precondition(inode != nil && catalogInode() == inode && LockScreenFiles.readCatalog(in: folder) == listed)
+    precondition(names().contains(nameB2K))
     // A source replaced with new content and a new date is cloned again with that date; the other clone keeps its own.
     precondition(fm.createFile(atPath: c.path, contents: Data("snow".utf8)))
     setDate(c, 3_000_000.75)
@@ -489,7 +511,8 @@ do {
     sync(b, paused, tiles, at: 3_100)
     precondition(LockScreenFiles.readState(in: folder)?.updated == 3_100)
     precondition(revisions() == [4_000_000_500, 3_000_000_750], "\(String(describing: revisions()))")
-    // No catalog: catalog.json goes, and so do the videos neither playing nor listed; the user's file stays.
+    // No catalog: catalog.json goes, and so do the videos neither playing nor listed (battery clones too); the user's
+    // file stays.
     sync(b, paused, nil, at: 4_000)
     precondition(names() == [nameB, "state.json", "notes.txt"], "\(names())")
 
@@ -511,18 +534,21 @@ do {
     try! LockScreenFiles.clear(folder)
     precondition(names() == ["notes.txt"], "\(names())")
 
-    // Only a clone that fails is reported (not a missing source); the others and state.json are still written.
+    // Only a clone that fails is reported (not a missing source); the others and state.json are still written. A
+    // battery variant that fails is reported too, and its tile keeps the main clone alone.
     let unreadable = src.appendingPathComponent("unreadable.mp4")
     precondition(fm.createFile(atPath: unreadable.path, contents: Data("four".utf8)))
     try! fm.setAttributes([.posixPermissions: 0], ofItemAtPath: unreadable.path)
     let report = try! LockScreenFiles.sync(
         current: b, flags: PlaybackFlags(),
-        catalog: [CatalogSource(source: unreadable, title: "Locked"), CatalogSource(source: c, title: "Snow"),
+        catalog: [CatalogSource(source: unreadable, title: "Locked"),
+                  CatalogSource(source: c, title: "Snow", batterySource: unreadable),
                   CatalogSource(source: src.appendingPathComponent("gone.mp4"), title: "Gone")],
         into: folder, now: Date(timeIntervalSince1970: 7_000))
-    precondition(report == SyncReport(failedCatalogItems: 1), "\(report)")
+    precondition(report == SyncReport(failedCatalogItems: 2), "\(report)")
     precondition(LockScreenFiles.readState(in: folder) == LockScreenState(file: nameB, updated: 7_000))
     precondition(LockScreenFiles.readCatalog(in: folder)?.items.map(\.file) == [nameC])
+    precondition(LockScreenFiles.readCatalog(in: folder)?.items.map(\.batteryFile) == [nil])
     try! fm.removeItem(at: root)
 }
 
@@ -691,6 +717,16 @@ do {
     precondition(!decodes(SurfacePresentation(isPreview: false, activity: .suspended), locked, everywhere))
 }
 
+// MARK: 0.4.0: covered displays, the clone and Shuffle rules, desktop coverage (Tests/PlaybackChecks.swift)
+
+checkCoveredDisplaysDecode()
+checkCoveredDisplaysReleased()
+checkVariantFile()
+checkSwitchesAtLoop()
+checkShuffleSwitchesAtLoop()
+checkShuffleIndex()
+checkDesktopCoverage()
+
 // MARK: WallpaperChoice (a tile's configuration)
 
 do {
@@ -704,6 +740,11 @@ do {
     precondition(WallpaperChoice(configuration: "../\(name)") == .follow)
     precondition(WallpaperChoice(configuration: "") == .follow)
     precondition(WallpaperChoice(configuration: name) == .video(name))
+    // Shuffle's id is never a video name, so no video's tile can turn into Shuffle or back.
+    precondition(WallpaperChoice(configuration: WallpaperChoice.shuffleID) == .shuffle)
+    precondition(!LockScreenFiles.isVideoName(WallpaperChoice.shuffleID))
+    precondition(WallpaperChoice(configuration: "Shuffle") == .follow)
+    precondition(WallpaperChoice(configuration: "shuffle.mp4") == .follow)
 }
 
 // MARK: GlowdropLink (any app or web page can open these: only the two exact names pass)

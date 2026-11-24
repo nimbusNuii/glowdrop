@@ -70,7 +70,12 @@
 "settings.engine.window" = "หน้าต่างของ Glowdrop";
 "settings.engine.system" = "วอลเปเปอร์ของ macOS";
 "settings.engine.window.footnote" = "Glowdrop เล่นวิดีโอไว้หลังไอคอนบนเดสก์ท็อประหว่างที่แอปเปิดอยู่";
-"settings.engine.system.footnote" = "macOS เล่นวิดีโอบนเดสก์ท็อปและหน้าล็อก แม้ปิด Glowdrop ไปแล้ว ในการตั้งค่าวอลเปเปอร์ ให้เลือก Glowdrop (เล่นตามแอปนี้) หรือวิดีโอใดก็ได้สำหรับแต่ละจอ ฟีเจอร์นี้ใช้อินเทอร์เฟซของ macOS ที่ไม่ได้เปิดเผยอย่างเป็นทางการ จึงอาจหยุดทำงานหลังอัปเดต macOS";
+"settings.engine.system.footnote" = "macOS เล่นวิดีโอบนเดสก์ท็อปและหน้าล็อก แม้ปิด Glowdrop ไปแล้ว ในการตั้งค่าวอลเปเปอร์ ให้เลือก Glowdrop (เล่นตามแอปนี้) สุ่มวิดีโอ (Shuffle) หรือวิดีโอใดก็ได้สำหรับแต่ละจอ ฟีเจอร์นี้ใช้อินเทอร์เฟซของ macOS ที่ไม่ได้เปิดเผยอย่างเป็นทางการ จึงอาจหยุดทำงานหลังอัปเดต macOS";
+"settings.shuffle" = "สุ่มวิดีโอใหม่ทุก";
+"settings.shuffle.5min" = "5 นาที";
+"settings.shuffle.15min" = "15 นาที";
+"settings.shuffle.hour" = "ชั่วโมง";
+"settings.shuffle.day" = "วัน";
 "settings.playback" = "การเล่น";
 "settings.quality" = "ความละเอียด";
 "settings.quality.auto" = "อัตโนมัติ";
