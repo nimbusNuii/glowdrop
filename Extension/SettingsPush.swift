@@ -73,7 +73,7 @@ enum SettingsPush {
     /// Builds the view models once and sends them over every live connection, unless the catalog changed meanwhile.
     @MainActor private static func push() async {
         let started = generation
-        guard let models = await buildSettingsViewModelsXPC() else {
+        guard let models = await buildSettingsViewModelsXPC(attempts: 1) else {
             wallpaperLog("[SettingsPush] build failed; nothing pushed")
             return
         }
@@ -84,9 +84,26 @@ enum SettingsPush {
         send(models)
     }
 
+    /// After a catalog video was copied again under the same name: every live agent fetches the stills anew, as after
+    /// a pick (see `WallpaperXPCHandler.selectedChoicesDidChange`).
+    @MainActor static func invalidateSnapshots() {
+        let proxies = liveProxies()
+        wallpaperLog("[SettingsPush] invalidating snapshots on \(proxies.count) connection(s)")
+        for proxy in proxies {
+            proxy.invalidateSnapshots { error in
+                guard let error else { return }
+                wallpaperLog("[SettingsPush] invalidateSnapshots failed:", privateDetail: error.localizedDescription)
+            }
+        }
+    }
+
+    private static func liveProxies() -> [any WallpaperExtensionProxyXPCProtocol] {
+        handlers.withLockUnchecked { $0.compactMap { $0.handler?.agentProxy } }
+    }
+
     /// Synchronous: the agent's reply is only logged, so nothing waits for it.
     private static func send(_ models: AnyObject) {
-        let proxies = handlers.withLockUnchecked { $0.compactMap { $0.handler?.agentProxy } }
+        let proxies = liveProxies()
         guard !proxies.isEmpty else {
             wallpaperLog("[SettingsPush] no live connection; the agent gets the tiles on its next query")
             return

@@ -13,6 +13,7 @@ let blockers: [(AutoPauseReason, (inout PlaybackConditions) -> Void)] = [
     (.lowPowerMode, { $0.lowPowerMode = true }),
     (.desktopCovered, { $0.desktopVisible = false }),
     (.onBattery, { $0.onBattery = true; $0.rules.onBattery = true }),
+    (.reduceMotion, { $0.reduceMotion = true }),
 ]
 for (reason, apply) in blockers {
     var c = good
@@ -27,6 +28,7 @@ let disabledRules: [(inout PlaybackConditions) -> Void] = [
     { $0.lowPowerMode = true; $0.rules.inLowPowerMode = false },
     { $0.desktopVisible = false; $0.rules.whenCovered = false },
     { $0.onBattery = true },  // battery rule is off by default
+    { $0.reduceMotion = true; $0.rules.withReduceMotion = false },
 ]
 for apply in disabledRules {
     var c = good
@@ -46,6 +48,15 @@ asleepAndLocked.screensAsleep = true
 asleepAndLocked.screenLocked = true
 asleepAndLocked.rules.whenLocked = false
 precondition(PlaybackPolicy.autoPauseReason(asleepAndLocked) == .screensAsleep)
+
+// Reduce Motion is reported after the battery and before covered windows.
+var motionAndCovered = good
+motionAndCovered.reduceMotion = true
+motionAndCovered.desktopVisible = false
+precondition(PlaybackPolicy.autoPauseReason(motionAndCovered) == .reduceMotion)
+motionAndCovered.onBattery = true
+motionAndCovered.rules.onBattery = true
+precondition(PlaybackPolicy.autoPauseReason(motionAndCovered) == .onBattery)
 
 // MARK: LibraryNaming
 
@@ -239,18 +250,21 @@ do {
     // 0.2.0 wrote only file and updated: the flags read as their defaults. Unknown keys are ignored.
     let flagless = LockScreenFiles.decode(Data(#"{"file":"\#(sunset)","updated":5}"#.utf8))
     precondition(flagless == LockScreenState(file: sunset, updated: 5) && flagless?.flags
-        == PlaybackFlags(desktop: false, paused: false, pauseInLowPowerMode: true, pauseOnBattery: false))
+        == PlaybackFlags(desktop: false, paused: false, pauseInLowPowerMode: true, pauseOnBattery: false,
+                         pauseWithReduceMotion: true))
     let future = #"{"file":"\#(sunset)","next":{"a":[1]},"paused":true,"title":"x","updated":5}"#
     precondition(LockScreenFiles.decode(Data(future.utf8))
         == LockScreenState(file: sunset, updated: 5, flags: PlaybackFlags(paused: true)))
     let flagged = LockScreenState(file: sunset, updated: 6, flags: PlaybackFlags(desktop: true, paused: true,
                                                                                  pauseInLowPowerMode: false,
-                                                                                 pauseOnBattery: true))
+                                                                                 pauseOnBattery: true,
+                                                                                 pauseWithReduceMotion: false))
     let flaggedData = try! LockScreenFiles.encode(flagged)
     precondition(LockScreenFiles.decode(flaggedData) == flagged)
     // One flat object, the shape 0.2.0 readers and the extension expect.
     let flaggedKeys = Set((try! JSONSerialization.jsonObject(with: flaggedData) as! [String: Any]).keys)
-    precondition(flaggedKeys == ["desktop", "file", "pauseInLowPowerMode", "pauseOnBattery", "paused", "updated"])
+    precondition(flaggedKeys == ["desktop", "file", "pauseInLowPowerMode", "pauseOnBattery", "pauseWithReduceMotion",
+                                 "paused", "updated"])
     let hostileStates = [
         #"{"file": "../../.ssh/id_rsa", "updated": 1}"#,
         #"{"file": "current.mp4", "updated": 1}"#,
@@ -270,8 +284,12 @@ do {
         let catalog = WallpaperCatalog(items: items.map { WallpaperCatalog.Item(file: $0.0, title: $0.1) })
         return LockScreenFiles.decodeCatalog(try! LockScreenFiles.encodeCatalog(catalog))?.items
     }
-    let catalog = WallpaperCatalog(items: [.init(file: a, title: "Sunset"), .init(file: b, title: "Rain")])
+    let catalog = WallpaperCatalog(items: [.init(file: a, title: "Sunset"), .init(file: b, title: "Rain", updated: 9)])
     precondition(LockScreenFiles.decodeCatalog(try! LockScreenFiles.encodeCatalog(catalog)) == catalog)
+    // 0.3.0 wrote no `updated`: its items read as revision 0; a written revision is kept.
+    let revisions = LockScreenFiles.decodeCatalog(
+        Data(#"{"items":[{"file":"\#(a)","title":"A"},{"file":"\#(b)","title":"B","updated":7}]}"#.utf8))
+    precondition(revisions?.items.map(\.updated) == [0, 7], "\(String(describing: revisions))")
     let padded = try! LockScreenFiles.encodeCatalog(catalog) + Data(repeating: 0x20, count: LockScreenFiles.maxCatalogBytes)
     for data in [padded, Data("not json".utf8), Data(#"{"files":[]}"#.utf8), Data(#"{"items":[{"file":1}]}"#.utf8)] {
         precondition(LockScreenFiles.decodeCatalog(data) == nil)
@@ -431,25 +449,46 @@ do {
     }
     func names() -> Set<String> { Set(try! fm.contentsOfDirectory(atPath: folder.path)) }
     func catalogInode() -> Int? { (try? fm.attributesOfItem(atPath: catalogURL.path))?[.systemFileNumber] as? Int }
+    func setDate(_ url: URL, _ seconds: TimeInterval) {
+        try! fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: seconds)], ofItemAtPath: url.path)
+    }
+    func revisions() -> [Int]? { LockScreenFiles.readCatalog(in: folder)?.items.map(\.updated) }
+    setDate(b, 1_000_000.5)
+    setDate(c, 2_000_000.25)
 
     // Sources are cloned and listed in order; a missing source, a folder posing as a video and a repeat are skipped.
+    // Each clone's `updated` is its modification date (kept from its source) in milliseconds.
     let tiles = [CatalogSource(source: b, title: "Rain"), CatalogSource(source: src.appendingPathComponent("gone.mp4"), title: "Gone"),
                  CatalogSource(source: src.appendingPathComponent("dir.mp4"), title: "Dir"),
                  CatalogSource(source: c, title: "Snow"), CatalogSource(source: b, title: "Again")]
     sync(a, PlaybackFlags(), tiles, at: 1_000)
-    let listed = WallpaperCatalog(items: [.init(file: nameB, title: "Rain"), .init(file: nameC, title: "Snow")])
+    let listed = WallpaperCatalog(items: [.init(file: nameB, title: "Rain", updated: 1_000_000_500),
+                                          .init(file: nameC, title: "Snow", updated: 2_000_000_250)])
     precondition(LockScreenFiles.readCatalog(in: folder) == listed)
     precondition(names() == [nameA, nameB, nameC, "catalog.json", "state.json", "notes.txt"], "\(names())")
     precondition(LockScreenFiles.readState(in: folder) == LockScreenState(file: nameA, updated: 1_000))
-    // New flags rewrite state.json but keep `updated`; an unchanged catalog.json is not rewritten.
+    // New flags rewrite state.json but keep `updated`; an unchanged catalog.json (each clone's `updated` too) is not
+    // rewritten.
     let inode = catalogInode()
     let paused = PlaybackFlags(desktop: true, paused: true)
     sync(a, paused, tiles, at: 2_000)
     precondition(LockScreenFiles.readState(in: folder) == LockScreenState(file: nameA, updated: 1_000, flags: paused))
-    precondition(inode != nil && catalogInode() == inode)
+    precondition(inode != nil && catalogInode() == inode && LockScreenFiles.readCatalog(in: folder) == listed)
+    // A source replaced with new content and a new date is cloned again with that date; the other clone keeps its own.
+    precondition(fm.createFile(atPath: c.path, contents: Data("snow".utf8)))
+    setDate(c, 3_000_000.75)
+    sync(a, paused, tiles, at: 2_500)
+    precondition(revisions() == [1_000_000_500, 3_000_000_750], "\(String(describing: revisions()))")
     // Switching to a video already cloned for the catalog: no copy, but the new name bumps `updated`.
     sync(b, paused, tiles, at: 3_000)
     precondition(LockScreenFiles.readState(in: folder) == LockScreenState(file: nameB, updated: 3_000, flags: paused))
+    precondition(revisions() == [1_000_000_500, 3_000_000_750])
+    // The playing video re-rendered: copied as the current video, and its tile's `updated` follows the new date.
+    precondition(fm.createFile(atPath: b.path, contents: Data("rain".utf8)))
+    setDate(b, 4_000_000.5)
+    sync(b, paused, tiles, at: 3_100)
+    precondition(LockScreenFiles.readState(in: folder)?.updated == 3_100)
+    precondition(revisions() == [4_000_000_500, 3_000_000_750], "\(String(describing: revisions()))")
     // No catalog: catalog.json goes, and so do the videos neither playing nor listed; the user's file stays.
     sync(b, paused, nil, at: 4_000)
     precondition(names() == [nameB, "state.json", "notes.txt"], "\(names())")
@@ -573,6 +612,15 @@ do {
     precondition(change(LockScreenState(file: other, updated: 2), URL(fileURLWithPath: "/x/\(other)"), catalog)
         == [true, false, false])
     precondition(change(nil, nil, nil) == [true, true, false])
+    // A catalog file with a new `updated` is refreshed; an added or removed file is not.
+    func refreshed(_ next: WallpaperCatalog) -> Set<String> {
+        LockScreenPlayback.change(from: state, oldURL: url, oldCatalog: catalog, to: state, url: url, catalog: next)
+            .refreshedCatalogFiles
+    }
+    precondition(refreshed(catalog).isEmpty && refreshed(WallpaperCatalog(items: [])).isEmpty)
+    precondition(refreshed(WallpaperCatalog(items: [.init(file: file, title: "A", updated: 5)])) == [file])
+    precondition(refreshed(WallpaperCatalog(items: [.init(file: file, title: "A"),
+                                                    .init(file: other, title: "B", updated: 5)])).isEmpty)
 }
 
 // MARK: LockScreenPlayback (lock screen and screen saver, with the desktop flag off)
@@ -629,6 +677,14 @@ do {
     precondition(!decodes(desktop, ScreenState(thermalHigh: true), everywhere))
     precondition(!decodes(lockSurface, ScreenState(screenLocked: true, thermalHigh: true), everywhere))
 
+    // Reduce Motion holds the still everywhere while its rule is on (the default); off, nothing else changes.
+    let motion = ScreenState(reduceMotion: true), lockedMotion = ScreenState(screenLocked: true, reduceMotion: true)
+    precondition(!decodes(desktop, motion, everywhere) && !decodes(lockSurface, lockedMotion, everywhere))
+    let motionRuleOff = PlaybackFlags(desktop: true, pauseWithReduceMotion: false)
+    precondition(decodes(desktop, motion, motionRuleOff) && decodes(lockSurface, lockedMotion, motionRuleOff))
+    precondition(!decodes(desktop, motion, PlaybackFlags(pauseWithReduceMotion: false)))
+    precondition(decodes(desktop, lockedMotion, PlaybackFlags(pauseWithReduceMotion: false)))
+
     // Preview, sleeping displays and suspended surfaces never decode, whatever the flags say.
     precondition(!decodes(SurfacePresentation(isPreview: true), locked, everywhere))
     precondition(!decodes(desktop, ScreenState(displaysAsleep: true), everywhere))
@@ -648,6 +704,28 @@ do {
     precondition(WallpaperChoice(configuration: "../\(name)") == .follow)
     precondition(WallpaperChoice(configuration: "") == .follow)
     precondition(WallpaperChoice(configuration: name) == .video(name))
+}
+
+// MARK: GlowdropLink (any app or web page can open these: only the two exact names pass)
+
+do {
+    for link in GlowdropLink.allCases { precondition(GlowdropLink(url: link.url) == link, link.rawValue) }
+    precondition(GlowdropLink.addVideo.url.absoluteString == "glowdrop://add-video")
+    let accepted: [(String, GlowdropLink)] = [
+        ("glowdrop://add-video", .addVideo), ("glowdrop://library", .library), ("GLOWDROP://LIBRARY", .library),
+        ("Glowdrop://Add-Video/", .addVideo), ("glowdrop://library/", .library),
+        // URL maps a full-width host to ASCII while parsing, so this arrives as glowdrop://library (documented).
+        ("glowdrop://ｌｉｂｒａｒｙ", .library),
+    ]
+    for (string, link) in accepted { precondition(URL(string: string).flatMap(GlowdropLink.init(url:)) == link, string) }
+    let refused = ["glowdrop://library/x", "glowdrop://library?x=1", "glowdrop://library#f", "glowdrop://evil",
+                   "https://library", "glowdrop://u@library", "glowdrop://library:80", "glowdrop:library",
+                   "file:///tmp/a.mp4", "glowdrop://u:p@library", "glowdrop://library?", "glowdrop://%6Cibrary",
+                   "glowdrop://library//", "glowdrop://library:", "glowdrop://add-video:/"]
+    for string in refused {
+        guard let url = URL(string: string) else { preconditionFailure("\(string) must parse as a URL") }
+        precondition(GlowdropLink(url: url) == nil, string)
+    }
 }
 
 // MARK: WallpaperAgentHealth

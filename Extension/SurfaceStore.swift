@@ -160,22 +160,28 @@ final class SurfaceStore {
         guard next != screen else { return }
         screen = next
         wallpaperLog("SCREEN locked=\(next.screenLocked) screenSaver=\(next.screenSaverRunning) asleep=\(next.displaysAsleep) "
-            + "lowPower=\(next.lowPowerMode) battery=\(next.onBattery) hot=\(next.thermalHigh)")
+            + "lowPower=\(next.lowPowerMode) battery=\(next.onBattery) hot=\(next.thermalHigh) "
+            + "reduceMotion=\(next.reduceMotion)")
         reconcile()
     }
 
     // MARK: Video
 
     /// What StateWatcher read. A new app video or catalog re-points the surfaces it affects; a flags-only change
-    /// re-applies the decode policy and never restarts a video.
+    /// re-applies the decode policy and never restarts a video. A catalog video copied again gets a new still and
+    /// player, and the agent fetches its stills again.
     func show(state: LockScreenState?, url: URL?, catalog: WallpaperCatalog?) {
         let change = LockScreenPlayback.change(from: shownState, oldURL: shownURL, oldCatalog: self.catalog,
                                                to: state, url: url, catalog: catalog)
         if change.refreshFollowVideo, let url { dropVideo(url) }
+        for file in change.refreshedCatalogFiles {
+            if let url = LockScreenFiles.videoURL(named: file, in: WallpaperPaths.lockScreenDir) { dropVideo(url) }
+        }
         shownState = state
         shownURL = url
         self.catalog = catalog
         if change.catalogChanged { SettingsPush.catalogDidChange() }
+        if !change.refreshedCatalogFiles.isEmpty { SettingsPush.invalidateSnapshots() }
         guard change.followChanged || change.catalogChanged else {
             reconcile()
             return

@@ -104,6 +104,7 @@ struct SettingsView: View {
             }
             Toggle(L10n.t("settings.pauseLowPower"), isOn: $settings.pauseInLowPowerMode)
             Toggle(L10n.t("settings.pauseBattery"), isOn: $settings.pauseOnBattery)
+            Toggle(L10n.t("settings.pauseReduceMotion"), isOn: $settings.pauseWithReduceMotion)
         } header: {
             Text(verbatim: L10n.t("settings.energy"))
         } footer: {

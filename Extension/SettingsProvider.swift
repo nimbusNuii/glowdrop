@@ -12,11 +12,32 @@ private let thumbnailSize = CGSize(width: 640, height: 360)
 private let catalogThumbnailSize = CGSize(width: 480, height: 270)
 private let thumbnailTimeout: Duration = .seconds(5)
 private let maxConcurrentThumbnails = 4
+/// Builds per request when the catalog keeps changing underneath; the last one is used as it is.
+private let maxSettingsBuilds = 3
+/// The right-click menu on the group and every tile, as in Phosphene: Settings sends the item's id to
+/// `invokeContextMenuAction`, which opens the matching glowdrop:// link in the app.
+private let tileMenu = ContextMenu(items: [
+    ContextMenuItem(id: ContextMenuItemID(id: GlowdropLink.addVideo.rawValue), localizedTitle: "Add Video…",
+                    isDestructive: false),
+    ContextMenuItem(id: ContextMenuItemID(id: GlowdropLink.library.rawValue), localizedTitle: "Open Glowdrop Library…",
+                    isDestructive: false),
+])
+
+/// Built again (at most `attempts` builds in all) when the catalog changed during a build, so a reply never shows a
+/// superseded catalog. SettingsPush passes 1: its own generation check already pushes again after a change.
+@MainActor
+func buildSettingsViewModelsXPC(attempts: Int = maxSettingsBuilds) async -> AnyObject? {
+    let started = SurfaceStore.shared.catalog
+    let models = await buildSettingsViewModelsOnce()
+    guard attempts > 1, SurfaceStore.shared.catalog != started else { return models }
+    wallpaperLog("[Settings] catalog changed during the build; building again")
+    return await buildSettingsViewModelsXPC(attempts: attempts - 1)
+}
 
 /// One group, "Glowdrop": the follow tile, then one tile per catalog video. Served to both the desktop and
 /// screen-saver pickers and remapped onto the private WallpaperSettingsViewModelsXPC.
 @MainActor
-func buildSettingsViewModelsXPC() async -> AnyObject? {
+private func buildSettingsViewModelsOnce() async -> AnyObject? {
     let provider = ChoiceProviderID(rawValue: Bundle.main.bundleIdentifier ?? "io.github.nimbusnuii.glowdrop.wallpaper")
     // The follow tile plays whatever the app mirrors, so it names no file (like Phosphene's shuffle choice).
     let follow = makeItem(provider: provider, identifier: WallpaperChoice.followID, files: [], name: groupName,
@@ -25,7 +46,7 @@ func buildSettingsViewModelsXPC() async -> AnyObject? {
     let group = SettingsGroup(
         id: GroupID(id: groupID), items: [follow] + videos, localizedName: groupName,
         disposability: .none, sortOrder: -100, sortID: GroupSortID(id: "com.apple.wallpaper.aerials"),
-        allChoiceID: nil, shouldHideItemLabels: false, contextMenu: nil, thumbnail: nil
+        allChoiceID: nil, shouldHideItemLabels: false, contextMenu: tileMenu, thumbnail: nil
     )
     let viewModel = SettingsViewModel(groups: [group], refreshPolicy: .default, isModificationDisabled: false)
     return remapToRealXPC(SettingsViewModels(desktop: viewModel, screenSaver: viewModel))
@@ -53,7 +74,7 @@ private func makeItem(provider: ChoiceProviderID, identifier: String, files: [UR
         showInTopLevel: true,
         sortOrder: sortOrder,
         disposability: .none,
-        contextMenu: nil
+        contextMenu: tileMenu
     )
 }
 
@@ -64,17 +85,19 @@ private func catalogItems(provider: ChoiceProviderID) async -> [SettingsItem] {
     let videos = catalog.compactMap { item in
         LockScreenFiles.videoURL(named: item.file, in: WallpaperPaths.lockScreenDir).map { (item, $0) }
     }
-    await makeCatalogThumbnails(videos.map { (file: $0.0.file, video: $0.1) })
-    // Last, so it never removes an image this build has just made.
-    removeStaleThumbnails(keeping: Set(catalog.map(\.file)))
+    await makeCatalogThumbnails(videos.map { (item: $0.0, video: $0.1) })
+    // Last, so it never removes an image this build has just made, nor one of the catalog the store holds now: a
+    // slower build of an older catalog keeps a newer revision's image; its own leftovers go on the next build.
+    let current = SurfaceStore.shared.catalog?.items ?? []
+    removeStaleThumbnails(keeping: Set((catalog + current).map { catalogThumbnailURL($0).lastPathComponent }))
     return videos.enumerated().map { index, entry in
         makeItem(provider: provider, identifier: entry.0.file, files: [entry.1], name: entry.0.title,
-                 description: videoDescription, thumbnail: catalogThumbnailURL(entry.0.file), sortOrder: index + 1)
+                 description: videoDescription, thumbnail: catalogThumbnailURL(entry.0), sortOrder: index + 1)
     }
 }
 
 /// Off the main actor, at most four at a time.
-private func makeCatalogThumbnails(_ videos: [(file: String, video: URL)]) async {
+private func makeCatalogThumbnails(_ videos: [(item: WallpaperCatalog.Item, video: URL)]) async {
     do {
         try FileManager.default.createDirectory(at: WallpaperPaths.thumbnailsDir, withIntermediateDirectories: true)
     } catch {
@@ -84,18 +107,17 @@ private func makeCatalogThumbnails(_ videos: [(file: String, video: URL)]) async
     await withTaskGroup(of: Void.self) { group in
         for (index, entry) in videos.enumerated() {
             if index >= maxConcurrentThumbnails { _ = await group.next() }
-            group.addTask { await catalogThumbnail(for: entry.file, video: entry.video) }
+            group.addTask { await catalogThumbnail(for: entry.item, video: entry.video) }
         }
     }
 }
 
-/// Removes the images of videos that left the catalog.
-private func removeStaleThumbnails(keeping files: Set<String>) {
+/// Removes every image whose name is not one of `names`: videos that left the catalog, and older revisions.
+private func removeStaleThumbnails(keeping names: Set<String>) {
     let dir = WallpaperPaths.thumbnailsDir
     let fm = FileManager.default
     do {
-        for name in try fm.contentsOfDirectory(atPath: dir.path)
-            where name.hasSuffix(".png") && !files.contains((name as NSString).deletingPathExtension) {
+        for name in try fm.contentsOfDirectory(atPath: dir.path) where name.hasSuffix(".png") && !names.contains(name) {
             try fm.removeItem(at: dir.appendingPathComponent(name))
         }
     } catch {
@@ -103,19 +125,20 @@ private func removeStaleThumbnails(keeping files: Set<String>) {
     }
 }
 
-private func catalogThumbnailURL(_ file: String) -> URL {
-    WallpaperPaths.thumbnailsDir.appendingPathComponent(file + ".png")
+/// The revision is in the name, so System Settings, which caches images by URL, loads a replaced video's new one.
+private func catalogThumbnailURL(_ item: WallpaperCatalog.Item) -> URL {
+    WallpaperPaths.thumbnailsDir.appendingPathComponent("\(item.file).r\(item.updated).png")
 }
 
-/// `Thumbnails/<file>.png`: the video's first frame, made again only when missing or not stamped with the video's
-/// modification date. shortcut: a frame that can't be read (or takes over 5 s) leaves the dark image until the
-/// video changes; retry on every build if that shows up.
-private func catalogThumbnail(for file: String, video: URL) async {
-    let target = catalogThumbnailURL(file)
+/// `Thumbnails/<file>.r<updated>.png`: the video's first frame, made again only when missing or not stamped with the
+/// video's modification date. shortcut: a frame that can't be read (or takes over 5 s) leaves the dark image until
+/// the video changes; retry on every build if that shows up.
+private func catalogThumbnail(for item: WallpaperCatalog.Item, video: URL) async {
+    let target = catalogThumbnailURL(item)
     guard !isUpToDate(target, comparedTo: video) else { return }
     let frame = await firstFrame(of: video, maxSize: catalogThumbnailSize, timeout: thumbnailTimeout)
     guard let image = frame ?? makeSolidImage(neutralDark, width: 480, height: 270), writePNG(image, to: target) else {
-        wallpaperLog("[Settings] thumbnail of \(file) not written; the tile has no image")
+        wallpaperLog("[Settings] thumbnail of \(item.file) not written; the tile has no image")
         return
     }
     stamp(target, from: video)

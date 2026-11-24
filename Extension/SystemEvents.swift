@@ -4,9 +4,9 @@
 import AppKit
 import CoreGraphics
 
-/// Turns loginwindow lock/unlock, the screen saver, display sleep, Low Power Mode, the power source and the
-/// thermal state into `ScreenState` changes. loginwindow reports the lock before WallpaperAgent updates any
-/// surface, so the lock screen starts playing without waiting for the agent.
+/// Turns loginwindow lock/unlock, the screen saver, display sleep, Low Power Mode, the power source, the
+/// thermal state and Reduce Motion into `ScreenState` changes. loginwindow reports the lock before WallpaperAgent
+/// updates any surface, so the lock screen starts playing without waiting for the agent.
 @MainActor
 enum SystemEvents {
     static func start(_ store: SurfaceStore) {
@@ -16,6 +16,7 @@ enum SystemEvents {
             $0.lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
             $0.onBattery = PowerSource.isOnBattery()
             $0.thermalHigh = isThermalHigh()
+            $0.reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         }
         let distributed = DistributedNotificationCenter.default()
         let workspace = NSWorkspace.shared.notificationCenter
@@ -27,6 +28,9 @@ enum SystemEvents {
             (distributed, .init("com.apple.screensaver.didstop"), { $0.screenSaverRunning = false }),
             (workspace, NSWorkspace.screensDidSleepNotification, { $0.displaysAsleep = true }),
             (workspace, NSWorkspace.screensDidWakeNotification, { $0.displaysAsleep = false }),
+            (workspace, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, {
+                $0.reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            }),
             (local, .NSProcessInfoPowerStateDidChange, { $0.lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled }),
             (local, ProcessInfo.thermalStateDidChangeNotification, { $0.thermalHigh = isThermalHigh() }),
             (local, .powerSourceChanged, { $0.onBattery = PowerSource.isOnBattery() }),

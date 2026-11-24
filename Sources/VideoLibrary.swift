@@ -54,8 +54,9 @@ final class VideoLibrary: ObservableObject {
         }
         // Not dropFirst: launching with both engines' sharing off clears what an earlier run left in the folder.
         // @Published emits before storing, so read the stored values on the next main-queue turn.
-        sharedFolderSubscription = Publishers.CombineLatest4(settings.$engine, settings.$lockScreenSync,
-                                                             settings.$pauseInLowPowerMode, settings.$pauseOnBattery)
+        let sharedSettings = Publishers.CombineLatest4(settings.$engine, settings.$lockScreenSync,
+                                                       settings.$pauseInLowPowerMode, settings.$pauseOnBattery)
+        sharedFolderSubscription = Publishers.CombineLatest(sharedSettings, settings.$pauseWithReduceMotion)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.updateSharedFolder() }
         for name in [NSApplication.didChangeScreenParametersNotification, .powerSourceChanged] {
@@ -254,7 +255,8 @@ final class VideoLibrary: ObservableObject {
         }
         guard let path = lastGoodPath, hasScanned || !desktop else { return }
         let flags = PlaybackFlags(desktop: desktop, paused: isPaused, pauseInLowPowerMode: settings.pauseInLowPowerMode,
-                                  pauseOnBattery: settings.pauseOnBattery)
+                                  pauseOnBattery: settings.pauseOnBattery,
+                                  pauseWithReduceMotion: settings.pauseWithReduceMotion)
         lockScreen.sync(current: URL(fileURLWithPath: path), flags: flags, catalog: desktop ? catalogSources() : nil)
     }
 

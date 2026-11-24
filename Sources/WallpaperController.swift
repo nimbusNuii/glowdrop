@@ -29,14 +29,17 @@ final class WallpaperController {
         player.preventsDisplaySleepDuringVideoPlayback = false
         conditions.lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
         conditions.onBattery = PowerSource.isOnBattery()
+        conditions.reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         PowerSource.startMonitoring()
         observeSystem()
         // @Published emits the new values before storing them, so build the rules from what the sink receives.
-        rulesSubscription = Publishers.CombineLatest4(settings.$pauseWhenCovered, settings.$pauseWhenLocked,
-                                                      settings.$pauseInLowPowerMode, settings.$pauseOnBattery)
-            .sink { [weak self] covered, locked, lowPower, battery in
-                self?.setRules(PauseRules(whenCovered: covered, whenLocked: locked,
-                                          inLowPowerMode: lowPower, onBattery: battery))
+        let powerRules = Publishers.CombineLatest4(settings.$pauseWhenCovered, settings.$pauseWhenLocked,
+                                                   settings.$pauseInLowPowerMode, settings.$pauseOnBattery)
+        rulesSubscription = Publishers.CombineLatest(powerRules, settings.$pauseWithReduceMotion)
+            .sink { [weak self] rules, reduceMotion in
+                let (covered, locked, lowPower, battery) = rules
+                self?.setRules(PauseRules(whenCovered: covered, whenLocked: locked, inLowPowerMode: lowPower,
+                                          onBattery: battery, withReduceMotion: reduceMotion))
             }
     }
 
@@ -54,6 +57,10 @@ final class WallpaperController {
         let workspace = NSWorkspace.shared.notificationCenter
         observe(workspace, NSWorkspace.screensDidSleepNotification) { controller, _ in controller.setScreensAsleep(true) }
         observe(workspace, NSWorkspace.screensDidWakeNotification) { controller, _ in controller.setScreensAsleep(false) }
+        observe(workspace, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification) { controller, _ in
+            controller.conditions.reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            controller.updatePlayback()
+        }
         let distributed = DistributedNotificationCenter.default()
         observe(distributed, Notification.Name("com.apple.screenIsLocked")) { controller, _ in controller.setScreenLocked(true) }
         observe(distributed, Notification.Name("com.apple.screenIsUnlocked")) { controller, _ in controller.setScreenLocked(false) }

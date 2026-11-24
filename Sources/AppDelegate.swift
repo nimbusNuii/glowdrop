@@ -20,6 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let quitItem = NSMenuItem()
     private var didFinishLaunching = false
     private var openedFileAtLaunch = false
+    /// A glowdrop:// link that arrived before launch finished; handled once it has.
+    private var launchLink: GlowdropLink?
+    /// An Add Video panel from a link is open or about to open; another add-video link only shows the gallery.
+    private var isAddingVideo = false
     /// The saved wallpaper re-applied at launch, until the player has checked it.
     private var launchPath: String?
     private var engineSubscription: AnyCancellable?
@@ -66,6 +70,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.applyDefaultOrShowGallery()
         }
         scheduleExtensionHealthCheck()
+        if let link = launchLink {
+            launchLink = nil
+            handle(link)
+        }
     }
 
     /// The gallery comes forward so its banner explains the failure. A saved wallpaper that no longer plays
@@ -91,8 +99,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // AppKit delivers document-open events after applicationWillFinishLaunching and before
-    // applicationDidFinishLaunching; when the app is already running they arrive any time.
+    // applicationDidFinishLaunching; when the app is already running they arrive any time. glowdrop:// links arrive
+    // the same way; any other URL is logged and ignored.
     func application(_ application: NSApplication, open urls: [URL]) {
+        let files = urls.filter(\.isFileURL)
+        if !files.isEmpty { openFiles(files) }
+        // One link per event: both show the gallery, and a burst should not stack Add Video panels.
+        guard let link = urls.filter({ !$0.isFileURL }).compactMap(link(from:)).last else { return }
+        if didFinishLaunching { handle(link) } else { launchLink = link }
+    }
+
+    /// Any app or web page can send a URL here: only the scheme of one that is no link goes to the log in the clear.
+    private func link(from url: URL) -> GlowdropLink? {
+        if let link = GlowdropLink(url: url) { return link }
+        let scheme = url.scheme ?? "schemeless"
+        Self.logger.notice("ignored a \(scheme, privacy: .public) URL: \(url.absoluteString, privacy: .private)")
+        return nil
+    }
+
+    /// The tile menu's links: the gallery comes forward (activating the app), with the Add Video panel for `addVideo`
+    /// unless a panel or another modal window is already open.
+    private func handle(_ link: GlowdropLink) {
+        gallery.show()
+        guard link == .addVideo, !isAddingVideo, NSApp.modalWindow == nil else { return }
+        isAddingVideo = true
+        // Next turn, so the open event returns before the panel runs modally.
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                defer { self.isAddingVideo = false }
+                // A modal window (the gallery's own Add Video panel) may have opened meanwhile.
+                guard NSApp.modalWindow == nil else { return }
+                GalleryActions.addVideo(to: self.library)
+            }
+        }
+    }
+
+    private func openFiles(_ urls: [URL]) {
         let videos = urls.filter { VideoLibrary.isVideoFile($0) }
         guard !videos.isEmpty else {
             let key = urls.lazy.compactMap { VideoLibrary.rejectionKey(for: $0) }.first ?? "gallery.error.notVideo"
